@@ -1,4 +1,4 @@
-#! /usr/bin/python2.7
+#! /usr/bin/python
 
 import rospy
 from std_msgs.msg import String
@@ -6,7 +6,6 @@ from sensor_msgs.msg import Image
 import cv2
 import numpy as np
 from cv_bridge import CvBridge, CvBridgeError
-import pyttsx
 
 
 def draw_rectangle(img, rect):
@@ -50,39 +49,32 @@ def detect_face(img):
     faces, rects = detect_faces(img)
 
     if len(faces) > 0:
+
+        # Show img (for debug)
         for i in range(len(faces)):
             draw_rectangle(img, rects[i])
-        else:
-            draw_text(img, "No face", 100, 100)
-
-        cv2.namedWindow("camera", 0)
+        cv2.namedWindow("camera")
         cv2.imshow("camera", img)
         cv2.waitKey(10)
 
-        if len(faces) == 1:
-            return faces[0]
-        else:
+        f = faces[0]
+
+        if len(faces) > 1:
             max_area = 0
-            f = faces[0]
-            for e in enumerate(rects):
-                (_, _, w, h) = e[1]
+            for k in range(len(rects)):
+                (_, _, w, h) = rects[k]
                 area = w * h
                 if area > max_area:
-                    f = faces[e[0]]
+                    f = faces[k]
 
-            cv2.namedWindow("face", 0)
-            cv2.imshow("face", f)
-            cv2.waitKey(10)
+        # Show face (for debug)
+        cv2.namedWindow("face")
+        cv2.imshow("face", f)
+        cv2.waitKey(10)
 
-            return f
+        return f
     else:
         return None
-
-
-def say(string):
-    speech = pyttsx.init()
-    speech.say(string)
-    speech.runAndWait()
 
 
 class Run:
@@ -96,25 +88,24 @@ class Run:
         self.bridge = CvBridge()  # convert img to cv2
 
         rospy.init_node('project_main')
-        self.cmd_pub = rospy.Publisher('/cmd', String, queue_size=10)
+        self.voice_pub = rospy.Publisher('/voice', String, queue_size=10)
         rospy.Subscriber("/camera/color/image_raw",
                          Image, self.callback_camera)
 
-        say('I am ready.')
+        self.voice('I am ready.')
         rospy.loginfo("project started")
 
-    def meet(self, name):
-        self.command = 'meet'
-        self.name = name
-        if self.data.get(name) is None:
-            self.data[name] = []
+    def voice(self, text):
+        import pyttsx
+        speech = pyttsx.init()
+        speech.say(text)
+        speech.runAndWait()
+        self.voice_pub.publish(text)
 
-    def train(self):
-        self.command = 'train'
-
-    def find(self, name):
-        self.command = 'find'
-        self.name = name
+    def taskdone(self, text):
+        self.command = ''  # reset to empty
+        self.voice(text)
+        rospy.loginfo(text)
 
     def callback_camera(self, cam_data):
         try:
@@ -123,10 +114,11 @@ class Run:
             print(e)
 
         if self.command == 'meet':
-            if len(self.data.get(self.name)) >= self.MAX_FACES:
-                say('Hello ' + self.name + '. How are you?')
-                self.command = 'done meet'
-                rospy.loginfo("done meet " + self.name)
+            if self.data.get(self.name) is None:
+                self.data[self.name] = []
+
+            elif len(self.data.get(self.name)) >= self.MAX_FACES:
+                self.taskdone('Hello ' + self.name + '. How are you?')
 
             else:
                 face = detect_face(img)
@@ -136,24 +128,24 @@ class Run:
                                   str(len(self.data.get(self.name))))
 
         elif self.command == 'train':
-            if len(self.data.values()) > 0:
+            people = self.data.values()
+            if len(people) > 0:
                 # create our LBPH face recognizer
                 self.face_recognizer = cv2.face.LBPHFaceRecognizer_create()
                 #face_recognizer = cv2.face.EigenFaceRecognizer_create()
                 #face_recognizer = cv2.face.FisherFaceRecognizer_create()
 
+                # prepare data for training
                 faces = []
                 labels = []
-                for e in enumerate(self.data.values()):
-                    for f in e[1]:
+                for k in range(len(people)):
+                    for f in people[k]:
                         faces.append(f)
-                        labels.append(e[0])
+                        labels.append(k)
 
                 # train our face recognizer of our training faces
                 self.face_recognizer.train(faces, np.array(labels))
-
-                self.command = 'done train'
-                rospy.loginfo('done train')
+                self.taskdone('Finished training.')
 
         elif self.command == 'find':
             TH = 50
@@ -168,29 +160,24 @@ class Run:
                     print('name', names[label], 'confidence', confidence)
                     if confidence > TH:
                         if names[label] == self.name:
-                            say('This is ' + self.name + '. I found you!')
-
-                            self.command = 'done find'
-                            rospy.loginfo("Found " + self.name)
+                            self.taskdone('This is ' + self.name +
+                                          '. I found you!')
 
 
 def send_cmd_loop(app):
     while True:
         command = raw_input()  # Wait for a user to print something.
+        cmd = command.split(' ')
 
         if command == '\n':
             break
         elif command == '':
             break
-        elif command == 'train':
-            app.train()
+        elif len(cmd) == 2:
+            app.command = cmd[0]
+            app.name = cmd[1]
         else:
-            cmd = command.split(' ')
-            if len(cmd) == 2:
-                if cmd[0] == 'meet':
-                    app.meet(cmd[1])
-                elif cmd[0] == 'find':
-                    app.find(cmd[1])
+            app.command = command
 
         rospy.Rate(10).sleep()
 
