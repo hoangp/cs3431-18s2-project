@@ -41,6 +41,13 @@ def detect_faces(img):
             (x, y, w, h) = rect
             faces.append(gray[y:y+w, x:x+h])
 
+        # Show img (for debug)
+        for i in range(len(faces)):
+            draw_rectangle(img, rects[i])
+        cv2.namedWindow("camera")
+        cv2.imshow("camera", img)
+        cv2.waitKey(100)
+
     return faces, rects
 
 
@@ -49,14 +56,6 @@ def detect_face(img):
     faces, rects = detect_faces(img)
 
     if len(faces) > 0:
-
-        # Show img (for debug)
-        for i in range(len(faces)):
-            draw_rectangle(img, rects[i])
-        cv2.namedWindow("camera")
-        cv2.imshow("camera", img)
-        cv2.waitKey(10)
-
         f = faces[0]
 
         if len(faces) > 1:
@@ -70,7 +69,7 @@ def detect_face(img):
         # Show face (for debug)
         cv2.namedWindow("face")
         cv2.imshow("face", f)
-        cv2.waitKey(10)
+        cv2.waitKey(100)
 
         return f
     else:
@@ -108,8 +107,15 @@ class Run:
         rospy.loginfo(text)
 
     def callback_camera(self, cam_data):
-        try:
-            img = self.bridge.imgmsg_to_cv2(cam_data, "bgr8")
+        try: 
+            img0 = self.bridge.imgmsg_to_cv2(cam_data, "bgr8")
+            # get image height, width
+            (h, w) = img0.shape[:2]
+            # calculate the center of the image
+            center = (w / 2, h / 2)
+            # rotate
+            M = cv2.getRotationMatrix2D(center, 90, 1.0)
+            img = cv2.warpAffine(img0, M, (h, w))
         except CvBridgeError as e:
             print(e)
 
@@ -148,7 +154,7 @@ class Run:
                 self.taskdone('Finished training.')
 
         elif self.command == 'find':
-            TH = 50
+            TH = 80
 
             names = self.data.keys()
             faces, _ = detect_faces(img)
@@ -158,7 +164,13 @@ class Run:
                     # predict the image using our face recognizer
                     label, confidence = self.face_recognizer.predict(f)
                     print('name', names[label], 'confidence', confidence)
-                    if confidence > TH:
+
+                    # Show face (for debug)
+                    cv2.namedWindow("face")
+                    cv2.imshow("face", f)
+                    cv2.waitKey(100)
+
+                    if confidence < TH:
                         if names[label] == self.name:
                             self.taskdone('This is ' + self.name +
                                           '. I found you!')
