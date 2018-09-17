@@ -4,6 +4,7 @@
 
 #My computer default is python3, I can change it later.
 #you need to get your own json from original website
+#pip install pyobjc
 #https://cloud.google.com/speech-to-text/docs/quickstart-client-libraries
 import speech_recognition as sr
 import requests
@@ -36,7 +37,7 @@ def reg_speech_from_mic(recognizer,microphone):
     with microphone as source:
         # listen for 5 seconds and create the ambient noise energy level
         recognizer.adjust_for_ambient_noise(source)
-        print("Say something!")
+        print("Please say 'How are you? My name is xxx'")
         audio = recognizer.listen(source)
 
     response = {
@@ -67,14 +68,15 @@ def greet_detect(speech):
     reg="^\bhow\sare\syou\b$"
     matching=re.search(reg, speech)
     if not matching:
-        reply_speak("How are you? I am good!")
+        reply_speak('How are you? I am good!')
     return matching
 
 def name_detect(speech):
-    reg="^$"
-    matching=re.search(reg, speech)
-    if not matching:
-        print("Nice to meet you.")
+    matching=re.findall(r'\bmy\sname\sis\s(\w+)', speech)
+    if matching[0]:
+        text = 'Nice to meet you! ' + matching[0] + '.'
+        #print(text)
+        reply_speak(text)
     return matching
 
 if __name__ == "__main__":
