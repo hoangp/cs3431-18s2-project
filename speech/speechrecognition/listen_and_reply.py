@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
+#My computer default is python3, I can change it later.
 #you need to get your own json from original website
 #https://cloud.google.com/speech-to-text/docs/quickstart-client-libraries
 import speech_recognition as sr
@@ -9,6 +10,7 @@ import requests
 import json
 import sys
 import re
+import pyttsx3
 
 
 def reg_speech_from_mic(recognizer,microphone):
@@ -54,22 +56,30 @@ def reg_speech_from_mic(recognizer,microphone):
 
     return response
 
-def greet_detect(reg,speech):
+def reply_speak(reply_text):
+    engine = pyttsx3.init()
+    #volume = engine.getProperty('volume')
+    #engine.setProperty('volume', volume-0.25)
+    engine.say(reply_text)
+    engine.runAndWait()
+
+def greet_detect(speech):
+    reg="^\bhow\sare\syou\b$"
     matching=re.search(reg, speech)
     if not matching:
-        print("hello")
+        reply_speak("How are you? I am good!")
     return matching
 
-def name_detect(reg,speech):
+def name_detect(speech):
+    reg="^$"
     matching=re.search(reg, speech)
     if not matching:
-        print("hello ")
+        print("Nice to meet you.")
     return matching
 
 if __name__ == "__main__":
     recognizer = sr.Recognizer()
     microphone = sr.Microphone()
-    #pattern = "how are you"
     
     with open(r"../google_cloud/service-account-file.json", "r") as f:
         credentials_json = f.read()
@@ -89,12 +99,10 @@ if __name__ == "__main__":
     
     print("You said:{}".format(response["transcription"]))
     speech=response["transcription"].lower()
-    reg="^\bhow\sare\syou\b$"
 
-    matching = greet_detect(reg,speech)
-    name = name_detect(reg,speech)
+    matching = greet_detect(speech)
+    name = name_detect(speech)
 
-    print("Matching:",matching)
 
 
 
