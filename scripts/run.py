@@ -6,6 +6,7 @@ from sensor_msgs.msg import Image
 import cv2
 import numpy as np
 from cv_bridge import CvBridge, CvBridgeError
+from darknet_ros_msgs.msg import BoundingBoxes
 
 
 def draw_rectangle(img, rect):
@@ -85,11 +86,16 @@ class Run:
         self.name = ''
         self.face_recognizer = None
         self.bridge = CvBridge()  # convert img to cv2
+        self.boxes = None
 
         rospy.init_node('project_main')
         self.voice_pub = rospy.Publisher('/voice', String, queue_size=10)
         rospy.Subscriber("/camera/color/image_raw",
                          Image, self.callback_camera)
+        rospy.Subscriber("/darknet_ros/detection_image",
+                         Image, self.callback_detection_image)
+        rospy.Subscriber("/darknet_ros/bounding_boxes",
+                         BoundingBoxes, self.callback_boxes)
 
         self.voice('I am ready.')
         rospy.loginfo("project started")
@@ -106,16 +112,52 @@ class Run:
         self.voice(text)
         rospy.loginfo(text)
 
+    def callback_boxes(self, data):
+        '''
+        Header header
+        Header image_header
+        BoundingBox[] bounding_boxes
+
+        string Class
+        float64 probability
+        int64 xmin
+        int64 ymin
+        int64 xmax
+        int64 ymax
+        '''
+        self.boxes = data.bounding_boxes
+
+    def callback_detection_image(self, data):
+        try: 
+            img = self.bridge.imgmsg_to_cv2(data, "bgr8")
+            # get image height, width
+            #(h, w) = img0.shape[:2]
+            # calculate the center of the image
+            #center = (w / 2, h / 2)
+            # rotate
+            #M = cv2.getRotationMatrix2D(center, 90, 1.0)
+            #img = cv2.warpAffine(img0, M, (h, w))
+        except CvBridgeError as e:
+            print(e)
+            
+        if self.boxes: 
+            for b in self.boxes:
+                if b.Class == 'person':
+                    # Show person (for debug)
+                    cv2.namedWindow("person")
+                    cv2.imshow("person", img[b.ymin:b.ymax, b.xmin:b.xmax])
+                    cv2.waitKey(100)
+
     def callback_camera(self, cam_data):
         try: 
-            img0 = self.bridge.imgmsg_to_cv2(cam_data, "bgr8")
+            img = self.bridge.imgmsg_to_cv2(cam_data, "bgr8")
             # get image height, width
-            (h, w) = img0.shape[:2]
+            #(h, w) = img0.shape[:2]
             # calculate the center of the image
-            center = (w / 2, h / 2)
+            #center = (w / 2, h / 2)
             # rotate
-            M = cv2.getRotationMatrix2D(center, 90, 1.0)
-            img = cv2.warpAffine(img0, M, (h, w))
+            #M = cv2.getRotationMatrix2D(center, 90, 1.0)
+            #img = cv2.warpAffine(img0, M, (h, w))
         except CvBridgeError as e:
             print(e)
 
