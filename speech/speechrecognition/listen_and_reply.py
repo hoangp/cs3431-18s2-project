@@ -65,10 +65,10 @@ def reply_speak(reply_text):
     engine.runAndWait()
 
 def greet_detect(speech):
-    reg="^\bhow\sare\syou\b$"
+    reg="^\bhello\srobot\b$"
     matching=re.search(reg, speech)
     if not matching:
-        reply_speak('How are you? I am good!')
+        reply_speak('How are you?')
     return matching
 
 def name_detect(speech):
