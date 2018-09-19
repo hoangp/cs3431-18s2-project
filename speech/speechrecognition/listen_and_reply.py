@@ -37,7 +37,7 @@ def reg_speech_from_mic(recognizer,microphone):
     with microphone as source:
         # listen for 5 seconds and create the ambient noise energy level
         recognizer.adjust_for_ambient_noise(source)
-        print("Please say 'How are you? My name is xxx'")
+        print("Please say 'Hello robot. My name is xxx'")
         audio = recognizer.listen(source)
 
     response = {
