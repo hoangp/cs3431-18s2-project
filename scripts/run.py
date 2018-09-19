@@ -43,11 +43,11 @@ def detect_faces(img):
             faces.append(gray[y:y+w, x:x+h])
 
         # Show img (for debug)
-        for i in range(len(faces)):
-            draw_rectangle(img, rects[i])
-        cv2.namedWindow("camera")
-        cv2.imshow("camera", img)
-        cv2.waitKey(100)
+        # for i in range(len(faces)):
+        #     draw_rectangle(img, rects[i])
+        # cv2.namedWindow("camera")
+        # cv2.imshow("camera", img)
+        # cv2.waitKey(100)
 
     return faces, rects
 
@@ -80,20 +80,19 @@ def detect_face(img):
 class Run:
     def __init__(self):
         self.data = {}
-        self.MAX_FACES = 10
+        self.MAX_FACES = 5
 
         self.command = ''
         self.name = ''
         self.face_recognizer = None
         self.bridge = CvBridge()  # convert img to cv2
         self.boxes = None
+        self.image = None
 
         rospy.init_node('project_main')
         self.voice_pub = rospy.Publisher('/voice', String, queue_size=10)
         rospy.Subscriber("/camera/color/image_raw",
                          Image, self.callback_camera)
-        rospy.Subscriber("/darknet_ros/detection_image",
-                         Image, self.callback_detection_image)
         rospy.Subscriber("/darknet_ros/bounding_boxes",
                          BoundingBoxes, self.callback_boxes)
 
@@ -112,6 +111,30 @@ class Run:
         self.voice(text)
         rospy.loginfo(text)
 
+    def train(self):
+        people_list = self.data.values() # list of {'faces', []}
+        people = []
+        for d in people_list:
+            people.append(d.get('faces'))
+        if len(people) > 0:
+            # create our LBPH face recognizer
+            self.face_recognizer = cv2.face.LBPHFaceRecognizer_create()
+            #face_recognizer = cv2.face.EigenFaceRecognizer_create()
+            #face_recognizer = cv2.face.FisherFaceRecognizer_create()
+
+            # prepare data for training
+            faces = []
+            labels = []
+            for k in range(len(people)):
+                for f in people[k]:
+                    faces.append(f)
+                    labels.append(k)
+
+            # train our face recognizer of our training faces
+            self.face_recognizer.train(faces, np.array(labels))
+            return True
+        return 
+
     def callback_boxes(self, data):
         '''
         Header header
@@ -127,26 +150,66 @@ class Run:
         '''
         self.boxes = data.bounding_boxes
 
-    def callback_detection_image(self, data):
-        try: 
-            img = self.bridge.imgmsg_to_cv2(data, "bgr8")
-            # get image height, width
-            #(h, w) = img0.shape[:2]
-            # calculate the center of the image
-            #center = (w / 2, h / 2)
-            # rotate
-            #M = cv2.getRotationMatrix2D(center, 90, 1.0)
-            #img = cv2.warpAffine(img0, M, (h, w))
-        except CvBridgeError as e:
-            print(e)
-            
-        if self.boxes: 
-            for b in self.boxes:
-                if b.Class == 'person':
-                    # Show person (for debug)
-                    cv2.namedWindow("person")
-                    cv2.imshow("person", img[b.ymin:b.ymax, b.xmin:b.xmax])
-                    cv2.waitKey(100)
+        if self.boxes is None:
+            return
+        
+        if self.image is None:
+            return
+
+        for b in self.boxes:
+            #if b.Class == 'person': # always 'person'
+            box_area = (b.xmax-b.xmin) * (b.ymax-b.ymin)
+            #print('box area', box_area)
+            #print('probability', b.probability)
+            if b.probability > 0.5 and box_area > 10000:
+                img = self.image
+
+                # Show person (for debug)
+                cv2.namedWindow("person")
+                cv2.imshow("person", img[b.ymin:b.ymax, b.xmin:b.xmax])
+                cv2.waitKey(100)
+
+                if self.command == 'meet':
+                    if self.data.get(self.name) is None:
+                        self.data[self.name] = {}
+                        self.data[self.name]['faces'] = []
+
+                    elif len(self.data.get(self.name).get('faces')) >= self.MAX_FACES:
+                        self.taskdone('Hello ' + self.name + '. How are you?')
+                        self.train()
+
+                    else:
+                        face = detect_face(img)
+                        if face is not None:
+                            self.data[self.name]['faces'].append(face)
+                            rospy.loginfo("added " + self.name + "'s face " +
+                                        str(len(self.data.get(self.name).get('faces'))))
+
+                elif self.command == 'train':
+                        self.train()
+                        self.taskdone('Finished training.')
+
+                elif self.command == 'find':
+                    TH = 80
+
+                    names = self.data.keys()
+                    faces, _ = detect_faces(img)
+
+                    if len(faces) > 0:
+                        for f in faces:
+                            # predict the image using our face recognizer
+                            label, confidence = self.face_recognizer.predict(f)
+                            print('name', names[label], 'confidence', confidence)
+
+                            # Show face (for debug)
+                            cv2.namedWindow("face")
+                            cv2.imshow("face", f)
+                            cv2.waitKey(100)
+
+                            if confidence < TH:
+                                if names[label] == self.name:
+                                    self.taskdone('This is ' + self.name +
+                                                '. I found you!')
 
     def callback_camera(self, cam_data):
         try: 
@@ -161,62 +224,9 @@ class Run:
         except CvBridgeError as e:
             print(e)
 
-        if self.command == 'meet':
-            if self.data.get(self.name) is None:
-                self.data[self.name] = []
+        self.image = img
 
-            elif len(self.data.get(self.name)) >= self.MAX_FACES:
-                self.taskdone('Hello ' + self.name + '. How are you?')
-
-            else:
-                face = detect_face(img)
-                if face is not None:
-                    self.data[self.name].append(face)
-                    rospy.loginfo("added " + self.name + "'s face " +
-                                  str(len(self.data.get(self.name))))
-
-        elif self.command == 'train':
-            people = self.data.values()
-            if len(people) > 0:
-                # create our LBPH face recognizer
-                self.face_recognizer = cv2.face.LBPHFaceRecognizer_create()
-                #face_recognizer = cv2.face.EigenFaceRecognizer_create()
-                #face_recognizer = cv2.face.FisherFaceRecognizer_create()
-
-                # prepare data for training
-                faces = []
-                labels = []
-                for k in range(len(people)):
-                    for f in people[k]:
-                        faces.append(f)
-                        labels.append(k)
-
-                # train our face recognizer of our training faces
-                self.face_recognizer.train(faces, np.array(labels))
-                self.taskdone('Finished training.')
-
-        elif self.command == 'find':
-            TH = 80
-
-            names = self.data.keys()
-            faces, _ = detect_faces(img)
-
-            if len(faces) > 0:
-                for f in faces:
-                    # predict the image using our face recognizer
-                    label, confidence = self.face_recognizer.predict(f)
-                    print('name', names[label], 'confidence', confidence)
-
-                    # Show face (for debug)
-                    cv2.namedWindow("face")
-                    cv2.imshow("face", f)
-                    cv2.waitKey(100)
-
-                    if confidence < TH:
-                        if names[label] == self.name:
-                            self.taskdone('This is ' + self.name +
-                                          '. I found you!')
-
+        
 
 def send_cmd_loop(app):
     while True:
