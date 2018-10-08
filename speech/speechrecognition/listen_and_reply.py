@@ -73,11 +73,15 @@ def greet_detect(speech):
 
 def name_detect(speech):
     matching=re.findall(r'\bmy\sname\sis\s(\w+)', speech)
-    if matching[0]:
+    #print('matching: ',matching)
+    if matching != []:
         text = 'Nice to meet you! ' + matching[0] + '.'
         #print(text)
         reply_speak(text)
-    return matching
+        return matching
+    else:
+        return None
+
 
 if __name__ == "__main__":
     recognizer = sr.Recognizer()
