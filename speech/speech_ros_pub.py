@@ -14,9 +14,9 @@ class Commander:
         
         r = sr.Recognizer()  # obtain audio from the microphone
         with sr.Microphone() as source:  
-            rospy.loginfo(("Please wait. Calibrating microphone...")  
+            rospy.loginfo("Please wait. Calibrating microphone...")  
             r.adjust_for_ambient_noise(source, duration=1)  
-            rospy.loginfo(("Say something!")  
+            rospy.loginfo("Say something!")  
             
             words = ''
             while words.find(STOP) == -1 and not rospy.is_shutdown():
