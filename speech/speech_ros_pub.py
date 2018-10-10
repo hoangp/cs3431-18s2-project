@@ -1,5 +1,6 @@
 import speech_recognition as sr 
 import rospy
+from std_msgs.msg import String
 
 class Commander: 
 
@@ -20,7 +21,7 @@ class Commander:
             
             words = ''
             while words.find(STOP) == -1 and not rospy.is_shutdown():
-                
+               
                 audio = r.listen(source, phrase_time_limit=5)  
                    
                 try:   # recognize speech using Sphinx 
@@ -39,19 +40,27 @@ class Commander:
 class CommandListener:
     
     def __init__(self, cammands_dic):
-        rospy.init_node('commands_listener')
-        rospy.Subscriber('commands', String, callback)
-        rospy.spin()
-        
         self.cammands_keys = cammands_dic.keys()
+        rospy.init_node('commands_listener')
+        rospy.Subscriber('commands', String, self.lis_com)
+        rospy.spin()
+        rospy.loginfo('listening')
         
-    def lis_com(self, words):
+        
+    def lis_com(self, data):
+        rospy.loginfo(data)
+        words = data.data
         for c in self.cammands_keys:
-            
-            if msg == c:
-                name = find_name(words, c)
+            if words.find(c) != -1:
+                name = self._find_name(words, c)
                 cammands_dic[c](name)
-        rospy.loginfo(msg)
+        
+    def _find_name(self, msg, c):
+        matching = re.findall(r'\b{}\s(\w+)'.format(c), msg)
+        print matching
+        if matching != []:
+            return matching[0]
+        
         
         
 def meet_person_func(name):
@@ -61,10 +70,13 @@ def meet_person_func(name):
 def find_person_func(name):
     print('excure <find_person_func>', name)
     # ...
+           
             
 if __name__ == '__main__':
     cammands_dic = {
-        'hello, I am': meet_person_func,
+        'I\'m': meet_person_func,
+        'I am': meet_person_func,
+        'my name is': meet_person_func,
         'find': find_person_func
     }
     com = Commander(cammands_dic)
