@@ -38,16 +38,23 @@ class OPKpsListener:
 
 	def __init__(self):
 		rospy.init_node('OPKps_Listener')
-		rospy.Subscriber('op_25kps', String, self.lis_func)
+		rospy.Subscriber('pr/op_25kps', String, self.lis_func)
 		rospy.spin()
+
 	def lis_func(self, data):
 		kpts = self._parse_25kps(data.data)
-		self._show_25kps(kpts)
 
-		pb = POSE_BODY_25_BODY_PARTS_CONV
-		print(kpts[pb['RWrist']][2],  kpts[pb['RShoulder']][2])
-		if kpts[pb['RWrist']][2] >1.2* kpts[pb['RShoulder']][2]:
-			print('put up right hand')
+		if kpts:
+			self._show_25kps(kpts)
+
+			pb = POSE_BODY_25_BODY_PARTS_CONV
+			
+			if kpts[pb['Neck']][1] != 0:
+				if kpts[pb['RWrist']][1] != 0 and kpts[pb['RWrist']][1] < kpts[pb['Neck']][1]:
+					print('put up RIGHT hand')
+
+				if kpts[pb['LWrist']][1] != 0 and kpts[pb['LWrist']][1] < kpts[pb['Neck']][1]:
+					print('put up LEFT hand')
 
 	def _parse_25kps(self, data):
 		kpts = []
@@ -60,7 +67,7 @@ class OPKpsListener:
 
 	def _show_25kps(self, kps):
 		pb = POSE_BODY_25_BODY_PARTS_CONV
-		shows = {pb['Nose'], pb['RShoulder'], pb['RElbow'], pb['RWrist']}
+		shows = {pb['Neck'], pb['RWrist'], pb['LWrist']}
 		for i, kpt in enumerate(kps):
 			if i not in shows: continue
 			print(POSE_BODY_25_BODY_PARTS[i] + ': ' +str(kpt))

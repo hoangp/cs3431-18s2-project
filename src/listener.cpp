@@ -51,10 +51,10 @@ void handle_openpose(const cv_bridge::CvImagePtr &cv_ptr)
 
   // when given the turtlebot camera, openpose netInputSize defaults to [656,368]
   // the turtlebot camera appears to output at a resolution of [640,480]
-  wrapper.netInputSize = op::Point<int>(640/2,480/2);
+  // wrapper.netInputSize = op::Point<int>(640,480);
   
   // not really neccesary to disable it but the option is there
-  //wrapper.renderMode = op::RenderMode::None;
+  // wrapper.renderMode = op::RenderMode::None;
   
   // set it to scale results between 0 and 1
   //wrapper.keypointScale = op::ScaleMode::ZeroToOne;
@@ -125,9 +125,11 @@ int main(int argc, char **argv)
    * is the number of messages that will be buffered up before beginning to throw
    * away the oldest ones.
    */
+
   sub = n.subscribe("camera/rgb/image_raw", 1, chatterCallback);
+  //sub = n.subscribe("pr/person_image", 1, chatterCallback);
   
-  pub = n.advertise<std_msgs::String>("op_25kps", 1000);
+  pub = n.advertise<std_msgs::String>("pr/op_25kps", 10);
 
   /**
    * ros::spin() will enter a loop, pumping callbacks.  With this version, all
