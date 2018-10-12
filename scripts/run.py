@@ -38,10 +38,72 @@ POSE_BODY_25_BODY_PARTS = {
 
 POSE_BODY_25_BODY_PARTS_CONV = {name: index for index, name in POSE_BODY_25_BODY_PARTS.items()}
 
+
+
+def detect_faces(img):
+    '''detect faces using OpenCV'''
+    # convert the test image to gray image as opencv face detector expects gray images
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+    # load OpenCV face detector, I am using LBP which is fast
+    # there is also a more accurate but slow Haar classifier
+    #face_cascade = cv2.CascadeClassifier('opencv-files/lbpcascade_frontalface.xml')
+    #face_cascade = cv2.CascadeClassifier("opencv-files/haarcascade_frontalface_default.xml")
+    face_cascade = cv2.CascadeClassifier(
+        "opencv-files/haarcascade_frontalface_alt.xml")
+
+    # let's detect multiscale (some images may be closer to camera than others) images
+    # result is a list of faces
+    rects = face_cascade.detectMultiScale(
+        gray, scaleFactor=1.3, minNeighbors=5)
+
+    # crop faces
+    faces = []
+    if (len(rects) != 0):
+        for rect in rects:
+            (x, y, w, h) = rect
+            faces.append(gray[y:y+w, x:x+h])
+
+        # Show img (for debug)
+        # for i in range(len(faces)):
+        #     draw_rectangle(img, rects[i])
+        # cv2.namedWindow("camera")
+        # cv2.imshow("camera", img)
+        # cv2.waitKey(100)
+
+    return faces, rects
+
+
+def detect_face(img):
+    '''get a face (the largest) from image'''
+    faces, rects = detect_faces(img)
+
+    if len(faces) > 0:
+        f = faces[0]
+
+        if len(faces) > 1:
+            max_area = 0
+            for k in range(len(rects)):
+                (_, _, w, h) = rects[k]
+                area = w * h
+                if area > max_area:
+                    f = faces[k]
+
+        # Show face (for debug)
+        cv2.namedWindow("face")
+        cv2.imshow("face", f)
+        cv2.waitKey(100)
+
+        return f
+    else:
+        return None
+
+
+
 class Run:
     def __init__(self):
         self.data = {}
-
+        self.MAX_FACES = 5
         self.command = ''
         self.name = ''
 
@@ -108,6 +170,32 @@ class Run:
         self.voice(text)
         rospy.loginfo(text)
 
+
+    def train(self):
+        people_list = self.data.values() # list of {'faces', []}
+        people = []
+        for d in people_list:
+            people.append(d.get('faces'))
+        if len(people) > 0:
+            # create our LBPH face recognizer
+            self.face_recognizer = cv2.face.LBPHFaceRecognizer_create()
+            #face_recognizer = cv2.face.EigenFaceRecognizer_create()
+            #face_recognizer = cv2.face.FisherFaceRecognizer_create()
+
+            # prepare data for training
+            faces = []
+            labels = []
+            for k in range(len(people)):
+                for f in people[k]:
+                    faces.append(f)
+                    labels.append(k)
+
+            # train our face recognizer of our training faces
+            self.face_recognizer.train(faces, np.array(labels))
+            return True
+        return 
+
+
     def callback_camera(self, cam_data):
         try: 
             img = self.bridge.imgmsg_to_cv2(cam_data, "bgr8")
@@ -143,13 +231,22 @@ class Run:
             if self.check_hand_raised():
                 
                 body = self.get_bodybox()
-
+                # need to get face boxs
                 if body is not None:
                     if self.data.get(self.name) is None:
                         print("new person")
                         self.data[self.name] = {}
+                    #     self.data[self.name]['faces'] = []
+                    # elif len(self.data.get(self.name).get('faces')) >= self.MAX_FACES:
+                    #     self.taskdone('Hello ' + self.name + '. How are you?')
+                    #     self.train()
                     else:
                         print("meet again")
+                        # face = detect_face(img)
+                        # if face is not None:
+                        #     self.data[self.name]['faces'].append(face)
+                        #     rospy.loginfo("added " + self.name + "'s face " +
+                        #                 str(len(self.data.get(self.name).get('faces'))))
 
                     img = self.image
                     xmin,xmax,ymin,ymax = body
@@ -165,28 +262,33 @@ class Run:
             else:
                 print("Please raise your hand")
 
+        elif self.command == 'train':
+                        self.train()
+                        self.taskdone('Finished training.')
+
         elif self.command == 'find':
-            pass
-            # TH = 80
+            #pass
+            TH = 80
+            img = self.image
 
-            # names = self.data.keys()
-            # faces, _ = detect_faces(img)
+            names = self.data.keys()
+            faces, _ = detect_faces(img)
 
-            # if len(faces) > 0:
-            #     for f in faces:
-            #         # predict the image using our face recognizer
-            #         label, confidence = self.face_recognizer.predict(f)
-            #         print('name', names[label], 'confidence', confidence)
+            if len(faces) > 0:
+                for f in faces:
+                    # predict the image using our face recognizer
+                    label, confidence = self.face_recognizer.predict(f)
+                    print('name', names[label], 'confidence', confidence)
 
-            #         # Show face (for debug)
-            #         cv2.namedWindow("face")
-            #         cv2.imshow("face", f)
-            #         cv2.waitKey(100)
+                    # Show face (for debug)
+                    cv2.namedWindow("face")
+                    cv2.imshow("face", f)
+                    cv2.waitKey(100)
 
-            #         if confidence < TH:
-            #             if names[label] == self.name:
-            #                 self.taskdone('This is ' + self.name +
-            #                             '. I found you!')
+                    if confidence < TH:
+                        if names[label] == self.name:
+                            self.taskdone('This is ' + self.name +
+                                        '. I found you!')
 
 def send_cmd_loop(app):
     while True:
