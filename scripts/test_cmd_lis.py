@@ -7,7 +7,7 @@ class CommandListener:
     '''
     This is the class for agent(robot), who will listen to "commands" topic
     '''
-    def __init__(self):
+    def __init__(self, pubtopic_name = 'cmd', pubtopic_data_class = String):
         self._focus = False
         self.cammands_dic = {
             'FOCUS ON': self._set_focus_flag,
@@ -18,7 +18,7 @@ class CommandListener:
         }
         self.cammands_keys = self.cammands_dic.keys()
         rospy.init_node('commands_listener')
-        rospy.Subscriber('commands', String, self.lis_func)
+        rospy.Subscriber(pubtopic_name, pubtopic_data_class, self.lis_func)
         rospy.loginfo('Ready to hear commands')
         rospy.spin()
         
