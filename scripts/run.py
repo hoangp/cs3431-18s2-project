@@ -40,70 +40,11 @@ POSE_BODY_25_BODY_PARTS_CONV = {name: index for index, name in POSE_BODY_25_BODY
 
 
 
-def detect_faces(img):
-    '''detect faces using OpenCV'''
-    # convert the test image to gray image as opencv face detector expects gray images
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-    # load OpenCV face detector, I am using LBP which is fast
-    # there is also a more accurate but slow Haar classifier
-    #face_cascade = cv2.CascadeClassifier('opencv-files/lbpcascade_frontalface.xml')
-    #face_cascade = cv2.CascadeClassifier("opencv-files/haarcascade_frontalface_default.xml")
-    face_cascade = cv2.CascadeClassifier(
-        "opencv-files/haarcascade_frontalface_alt.xml")
-
-    # let's detect multiscale (some images may be closer to camera than others) images
-    # result is a list of faces
-    rects = face_cascade.detectMultiScale(
-        gray, scaleFactor=1.3, minNeighbors=5)
-
-    # crop faces
-    faces = []
-    if (len(rects) != 0):
-        for rect in rects:
-            (x, y, w, h) = rect
-            faces.append(gray[y:y+w, x:x+h])
-
-        # Show img (for debug)
-        # for i in range(len(faces)):
-        #     draw_rectangle(img, rects[i])
-        # cv2.namedWindow("camera")
-        # cv2.imshow("camera", img)
-        # cv2.waitKey(100)
-
-    return faces, rects
-
-
-def detect_face(img):
-    '''get a face (the largest) from image'''
-    faces, rects = detect_faces(img)
-
-    if len(faces) > 0:
-        f = faces[0]
-
-        if len(faces) > 1:
-            max_area = 0
-            for k in range(len(rects)):
-                (_, _, w, h) = rects[k]
-                area = w * h
-                if area > max_area:
-                    f = faces[k]
-
-        # Show face (for debug)
-        cv2.namedWindow("face")
-        cv2.imshow("face", f)
-        cv2.waitKey(100)
-
-        return f
-    else:
-        return None
-
 
 
 class Run:
     def __init__(self):
         self.data = {}
-        self.MAX_FACES = 5
         self.command = ''
         self.name = ''
 
@@ -171,29 +112,29 @@ class Run:
         rospy.loginfo(text)
 
 
-    def train(self):
-        people_list = self.data.values() # list of {'faces', []}
-        people = []
-        for d in people_list:
-            people.append(d.get('faces'))
-        if len(people) > 0:
-            # create our LBPH face recognizer
-            self.face_recognizer = cv2.face.LBPHFaceRecognizer_create()
-            #face_recognizer = cv2.face.EigenFaceRecognizer_create()
-            #face_recognizer = cv2.face.FisherFaceRecognizer_create()
+    # def train(self):
+    #     people_list = self.data.values() # list of {'faces', []}
+    #     people = []
+    #     for d in people_list:
+    #         people.append(d.get('faces'))
+    #     if len(people) > 0:
+    #         # create our LBPH face recognizer
+    #         self.face_recognizer = cv2.face.LBPHFaceRecognizer_create()
+    #         #face_recognizer = cv2.face.EigenFaceRecognizer_create()
+    #         #face_recognizer = cv2.face.FisherFaceRecognizer_create()
 
-            # prepare data for training
-            faces = []
-            labels = []
-            for k in range(len(people)):
-                for f in people[k]:
-                    faces.append(f)
-                    labels.append(k)
+    #         # prepare data for training
+    #         faces = []
+    #         labels = []
+    #         for k in range(len(people)):
+    #             for f in people[k]:
+    #                 faces.append(f)
+    #                 labels.append(k)
 
-            # train our face recognizer of our training faces
-            self.face_recognizer.train(faces, np.array(labels))
-            return True
-        return 
+    #         # train our face recognizer of our training faces
+    #         self.face_recognizer.train(faces, np.array(labels))
+    #         return True
+    #     return 
 
 
     def callback_camera(self, cam_data):
@@ -226,27 +167,42 @@ class Run:
                     return True
         return False
 
+    def get_histGBR(self, img):
+        pixal = img.shape[0] * img.shape[1]
+        
+        histSingle0 = cv2.calcHist([img], [0], None, [256], [0, 256])
+        histSingle1 = cv2.calcHist([img], [1], None, [256], [0, 256])
+        histSingle2 = cv2.calcHist([img], [2], None, [256], [0, 256])
+
+        total = np.concatenate((histSingle0, histSingle1, histSingle2),0)
+            
+        return (total, pixal)
+
+    # def hist_similar(self, lhist, rhist, lpixal, rpixal):
+    #     rscale = rpixal/lpixal
+    #     rhist = rhist/rscale
+    #     assert len(lhist) == len(rhist)
+    #     likely = sum(1 - (0 if l == r else float(abs(l-r))/max(l,r)) for l,r in zip(lhist, rhist)) / len(lhist)
+    #     if likely ==1.0:
+    #         return [1.0]
+    #     return likely
+
+    def hist_similar(self, lhist, rhist):
+        return cv2.compareHist(lhist, rhist,0)
+
     def react_to_command(self):
+        
         if self.command == 'meet':
             if self.check_hand_raised():
                 
                 body = self.get_bodybox()
-                # need to get face boxs
+
                 if body is not None:
                     if self.data.get(self.name) is None:
                         print("new person")
                         self.data[self.name] = {}
-                    #     self.data[self.name]['faces'] = []
-                    # elif len(self.data.get(self.name).get('faces')) >= self.MAX_FACES:
-                    #     self.taskdone('Hello ' + self.name + '. How are you?')
-                    #     self.train()
                     else:
                         print("meet again")
-                        # face = detect_face(img)
-                        # if face is not None:
-                        #     self.data[self.name]['faces'].append(face)
-                        #     rospy.loginfo("added " + self.name + "'s face " +
-                        #                 str(len(self.data.get(self.name).get('faces'))))
 
                     img = self.image
                     xmin,xmax,ymin,ymax = body
@@ -254,41 +210,74 @@ class Run:
                     self.command = 'done meet'
 
                     # Show (for debug)
-                    cv2.namedWindow("body")
-                    cv2.imshow("body", self.data[self.name]['body'])
-                    cv2.waitKey(15)
 
+
+                    cv2.imshow("body", self.data[self.name]['body'])
+                    cv2.waitKey(15)   
                     
             else:
                 print("Please raise your hand")
 
-        elif self.command == 'train':
-                        self.train()
-                        self.taskdone('Finished training.')
-
         elif self.command == 'find':
             #pass
-            TH = 80
-            img = self.image
+            # TH = 80
+            img1 = self.image
 
-            names = self.data.keys()
-            faces, _ = detect_faces(img)
+            unknown_body = self.get_bodybox()
 
-            if len(faces) > 0:
-                for f in faces:
-                    # predict the image using our face recognizer
-                    label, confidence = self.face_recognizer.predict(f)
-                    print('name', names[label], 'confidence', confidence)
+            if unknown_body is not None:
+                xmin1,xmax1,ymin1,ymax1 = unknown_body
+                cv2.imshow("unknowbody", img1[ymin1:ymax1, xmin1:xmax1])
+                cv2.waitKey(5)
+                unknowbody_pic = img1[ymin1:ymax1, xmin1:xmax1]
+                
+            
+                names = self.data.keys()
 
-                    # Show face (for debug)
-                    cv2.namedWindow("face")
-                    cv2.imshow("face", f)
-                    cv2.waitKey(100)
+                if len(names) > 0:
+                    sim_list=[]
+                    for p in names:
+                        know_body = self.data[p]['body']
 
-                    if confidence < TH:
-                        if names[label] == self.name:
-                            self.taskdone('This is ' + self.name +
-                                        '. I found you!')
+                        testHist, testPixal = self.get_histGBR(know_body)
+                        h,w,ch = self.data[p]['body'].shape
+
+                        unknowbody_pic = cv2.resize(unknowbody_pic, (w,h))
+
+                        print know_body.shape, type(know_body), unknowbody_pic.shape, type(unknowbody_pic)
+
+                        targetHist, targetPixal = self.get_histGBR(unknowbody_pic)
+
+                        sim = self.hist_similar(targetHist, testHist)
+                        if str(sim) != "[nan]":
+                            sim_list.append(sim)
+                            rospy.loginfo("similarity of "+p+str(sim))
+                        else:
+                            sim_list.append(0)
+                            rospy.loginfo("similarity of "+p+"[0]")
+                    
+                    max_sim = max(sim_list)
+                    if max_sim>=0.8 and names[sim_list.index(max_sim)]==self.name:
+                        self.taskdone('This is ' + self.name +"'s body!")
+
+            # names = self.data.keys()
+            # faces, _ = detect_faces(img)
+
+            # if len(faces) > 0:
+            #     for f in faces:
+            #         # predict the image using our face recognizer
+            #         label, confidence = self.face_recognizer.predict(f)
+            #         print('name', names[label], 'confidence', confidence)
+
+            #         # Show face (for debug)
+            #         cv2.namedWindow("face")
+            #         cv2.imshow("face", f)
+            #         cv2.waitKey(100)
+
+            #         if confidence < TH:
+            #             if names[label] == self.name:
+            #                 self.taskdone('This is ' + self.name +
+            #                             '. I found you!')
 
 def send_cmd_loop(app):
     while True:
