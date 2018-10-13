@@ -14,6 +14,7 @@ class CommandListener:
             'I\'m': self.meet_person_func,
             'I am': self.meet_person_func,
             'my name is': self.meet_person_func,
+            'meet': self.meet_person_func,
             'find': self.find_person_func
         }
         self.cammands_keys = self.cammands_dic.keys()

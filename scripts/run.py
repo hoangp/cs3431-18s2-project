@@ -7,6 +7,8 @@ import cv2
 import numpy as np
 from cv_bridge import CvBridge, CvBridgeError
 
+CAMERA_TOPIC = "/camera/rgb/image_raw"
+
 POSE_BODY_25_BODY_PARTS = {
     0:  "Nose",
     1:  "Neck",
@@ -37,137 +39,21 @@ POSE_BODY_25_BODY_PARTS = {
 }
 
 POSE_BODY_25_BODY_PARTS_CONV = {name: index for index, name in POSE_BODY_25_BODY_PARTS.items()}
+pb = POSE_BODY_25_BODY_PARTS_CONV
 
+def is_center_image(p):
+    #return (p[0]>100 and p[0]<540 and p[1]>50 and p[1] < 430)
+    return True
 
+def scale_box(box, width=0.0, height=0.0):
+    xmin,xmax,ymin,ymax = box
+    xmin = int(xmin*(1-width))
+    xmax = int(xmax*(1+width))
+    ymin = int(ymin*(1-height))
+    ymax = int(ymax*(1+height))
+    return (xmin,xmax,ymin,ymax)
 
-
-
-class Run:
-    def __init__(self):
-        self.data = {}
-        self.command = ''
-        self.name = ''
-
-        self.bridge = CvBridge()  # convert img to cv2
-        #self.boxes = None
-        self.image = None # image from camera
-        self.kpts = None # 25 keypoints from openpose
-
-        self.hand_raised = False
-
-        rospy.init_node('person_recogition')
-
-        self.voice_pub = rospy.Publisher('/voice', String, queue_size=10)
-        
-        rospy.Subscriber("/camera/rgb/image_raw",
-                         Image, self.callback_camera)
-        # rospy.Subscriber("/darknet_ros/bounding_boxes",
-        #                  BoundingBoxes, self.callback_boxes)
-        rospy.Subscriber('pr/op_25kps', String, self.callback_25kpts)
-
-        self.voice('I am ready.')
-
-        rospy.loginfo("ready")
-
-    def callback_25kpts(self, data):
-        self.kpts = self._parse_25kps(data.data)
-
-        #self._show_25kps(self.kpts)
-
-    def _parse_25kps(self, data):
-        kpts = []
-        for i, kpt in enumerate(data.split('\n')):
-            if i==0 or kpt == '': 
-                continue
-            x, y, z = kpt.split()
-            kpts.append((float(x), float(y), float(z)))
-        return kpts
-
-    def _show_25kps(self, kps):
-        pb = POSE_BODY_25_BODY_PARTS_CONV
-        shows = {pb['Neck'], pb['RWrist'], pb['LWrist'], pb['MidHip']}
-        for i, kpt in enumerate(kps):
-            if i not in shows: continue
-            print(POSE_BODY_25_BODY_PARTS[i] + ': ' +str(kpt))
-        print('\n')
-
-    def filter_kps(self, filter):
-        pb = POSE_BODY_25_BODY_PARTS_CONV
-        kps = []
-        for i, kpt in enumerate(self.kpts):
-            if i not in filter: continue
-            kps.append(kpt)
-        return kps
-
-    def voice(self, text):
-        import pyttsx
-        speech = pyttsx.init()
-        speech.say(text)
-        speech.runAndWait()
-        self.voice_pub.publish(text)
-
-    def taskdone(self, text):
-        self.command = ''  # reset to empty
-        self.voice(text)
-        rospy.loginfo(text)
-
-
-    # def train(self):
-    #     people_list = self.data.values() # list of {'faces', []}
-    #     people = []
-    #     for d in people_list:
-    #         people.append(d.get('faces'))
-    #     if len(people) > 0:
-    #         # create our LBPH face recognizer
-    #         self.face_recognizer = cv2.face.LBPHFaceRecognizer_create()
-    #         #face_recognizer = cv2.face.EigenFaceRecognizer_create()
-    #         #face_recognizer = cv2.face.FisherFaceRecognizer_create()
-
-    #         # prepare data for training
-    #         faces = []
-    #         labels = []
-    #         for k in range(len(people)):
-    #             for f in people[k]:
-    #                 faces.append(f)
-    #                 labels.append(k)
-
-    #         # train our face recognizer of our training faces
-    #         self.face_recognizer.train(faces, np.array(labels))
-    #         return True
-    #     return 
-
-
-    def callback_camera(self, cam_data):
-        try: 
-            img = self.bridge.imgmsg_to_cv2(cam_data, "bgr8")
-        except CvBridgeError as e:
-            print(e)
-        self.image = img
-
-        self.react_to_command()
-
-    def get_bodybox(self):
-        if self.kpts:
-            pb = POSE_BODY_25_BODY_PARTS_CONV
-            idx = {pb['Neck'], pb['MidHip'], pb['RShoulder'], pb['LShoulder'], pb['RHip'], pb['LHip']}
-            points = self.filter_kps(idx)
-            xpoints = [int(p[0]) for p in points]
-            ypoints = [int(p[1]) for p in points]
-            return (min(xpoints), max(xpoints),min(ypoints), max(ypoints))
-
-    def check_hand_raised(self):
-        if self.kpts:
-            pb = POSE_BODY_25_BODY_PARTS_CONV
-            if self.kpts[pb['Neck']][1] != 0:
-                if self.kpts[pb['RWrist']][1] != 0 and self.kpts[pb['RWrist']][1] < self.kpts[pb['Neck']][1]:
-                    print('put up RIGHT hand')
-                    return True
-                if self.kpts[pb['LWrist']][1] != 0 and self.kpts[pb['LWrist']][1] < self.kpts[pb['Neck']][1]:
-                    print('put up LEFT hand')
-                    return True
-        return False
-
-    def get_histGBR(self, img):
+def get_histGBR(img):
         pixal = img.shape[0] * img.shape[1]
         
         histSingle0 = cv2.calcHist([img], [0], None, [256], [0, 256])
@@ -178,106 +64,257 @@ class Run:
             
         return (total, pixal)
 
-    # def hist_similar(self, lhist, rhist, lpixal, rpixal):
-    #     rscale = rpixal/lpixal
-    #     rhist = rhist/rscale
-    #     assert len(lhist) == len(rhist)
-    #     likely = sum(1 - (0 if l == r else float(abs(l-r))/max(l,r)) for l,r in zip(lhist, rhist)) / len(lhist)
-    #     if likely ==1.0:
-    #         return [1.0]
-    #     return likely
+def hist_similar(lhist, rhist):
+    return cv2.compareHist(lhist, rhist,0)
 
-    def hist_similar(self, lhist, rhist):
-        return cv2.compareHist(lhist, rhist,0)
+def get_sim(unknowbody_pic, know_body):
+    testHist, testPixal = get_histGBR(know_body)
+    h,w,ch = know_body.shape
+    unknowbody_pic = cv2.resize(unknowbody_pic, (w,h))
+    #print know_body.shape, type(know_body), unknowbody_pic.shape, type(unknowbody_pic)
+    targetHist, targetPixal = get_histGBR(unknowbody_pic)
+    sim = hist_similar(targetHist, testHist)
+    if str(sim) == "[nan]":
+        return 0
+    return sim
+
+class Run:
+    def __init__(self):
+        self.data = {} # people database
+        self.command = ''
+        self.name = ''
+
+        self.bridge = CvBridge()  # convert ros image to cv2
+
+        self.image = None # cv2 image from camera
+        self.kpts = None # list of [25 keypoints from openpose] -> number of person
+
+        self.hand_raised = False
+        self.voice_once = False
+
+        rospy.init_node('person_recogition')
+
+        self.voice_pub = rospy.Publisher('pr/voice', String, queue_size=10)
+
+        rospy.Subscriber(CAMERA_TOPIC, Image, self.callback_camera)
+        rospy.Subscriber('pr/op_25kps', String, self.callback_25kpts)
+        rospy.Subscriber('pr/cmd', String, self.callback_cmd)
+
+        self.voice('I am ready.')
+        rospy.loginfo("ready")
+
+    def callback_25kpts(self, data):
+        self.kpts = self._parse_25kps(data.data)
+        #print("callback_25kpts")
+        #print(len(self.kpts))
+        #for kpts in self.kpts:
+        #    self.show_kps(kpts, range(26))
+
+    def _parse_25kps(self, data):
+        kpts = []
+        #print(len(data.split('\n')))
+        for i, kpt in enumerate(data.split('\n')):
+            if i==0 or kpt == '': 
+                continue
+            x, y, z = kpt.split()
+            kpts.append((float(x), float(y), float(z)))
+
+        num_person = len(kpts) // 25
+        person = []
+        if num_person > 0:
+            for i in range(num_person):
+                person.append(kpts[i*25:(i+1)*25-1])
+        return person
+
+    def show_kps(self, kpts, shows):
+        for i, kpt in enumerate(kpts):
+            if i not in shows: continue
+            print(POSE_BODY_25_BODY_PARTS[i] + ': ' +str(kpt))
+        print('\n')
+
+    def voice(self, text):
+        # import pyttsx
+        # speech = pyttsx.init()
+        # speech.say(text)
+        # speech.runAndWait()
+        self.voice_pub.publish(text)
+        rospy.loginfo(text)
+
+    def taskdone(self, text):
+        self.command = ''  # reset to empty
+        self.voice(text)
+        
+    def callback_camera(self, cam_data):
+        try: 
+            img = self.bridge.imgmsg_to_cv2(cam_data, "bgr8")
+        except CvBridgeError as e:
+            print(e)
+        self.image = img
+        self.react_to_command()
+
+    def callback_cmd(self, command):
+        cmd = command.data.split(' ')
+        if len(cmd) == 2:
+            self.command = cmd[0]
+            self.name = cmd[1]
+        else:
+            self.command = command
+
+    def filter_kps(self, kpts, filter):
+        kps = []
+        for i, kpt in enumerate(kpts):
+            if i not in filter: continue
+            kps.append(kpt)
+        return kps
+
+    def get_box(self, kpts, idx):
+        if self.kpts:
+            points = self.filter_kps(kpts, idx)
+            #print(len(points))
+            # for i, p in enumerate(points):
+            #     if not is_center_image(p): 
+            #         return None
+            xpoints = [p[0] for p in points if p[0]!=0]
+            ypoints = [p[1] for p in points if p[1]!=0]
+            box = (min(xpoints), max(xpoints),min(ypoints), max(ypoints))
+            return scale_box(box)
+
+    def get_bodyboxes(self):
+        idx = {pb['Neck'], pb['MidHip'], pb['RShoulder'], pb['LShoulder'], pb['RHip'], pb['LHip']}
+        #print("bodybox")
+        #self.show_kps(idx)
+        return [self.get_box(kpts, idx) for kpts in self.kpts]
+
+    def get_pantboxes(self):    
+        idx = {pb['MidHip'], pb['RHip'], pb['LHip'], pb['RKnee'], pb['LKnee']}
+        #print("pantbox")
+        #self.show_kps(idx)
+        return [self.get_box(kpts, idx) for kpts in self.kpts]
+
+    def get_personboxes(self):
+        idx = range(26)
+        #print("bodybox")
+        #self.show_kps(idx)
+        return [self.get_box(kpts, idx) for kpts in self.kpts]
+
+    def check_hand_raised(self):
+        for i, kpts in enumerate(self.kpts):
+            if kpts[pb['Neck']][1] != 0:
+                if kpts[pb['RWrist']][1] != 0 and kpts[pb['RWrist']][1] < kpts[pb['Neck']][1]:
+                    #print('put up RIGHT hand')
+                    return i
+                if kpts[pb['LWrist']][1] != 0 and kpts[pb['LWrist']][1] < kpts[pb['Neck']][1]:
+                    #print('put up LEFT hand')
+                    return i
+        return None
 
     def react_to_command(self):
-        
-        if self.command == 'meet':
-            if self.check_hand_raised():
-                
-                body = self.get_bodybox()
+        if self.command == 'list':
+            if self.data:
+                names = self.data.keys()
+                text = "there are " + str(len(names)) + " people:"
+                for name in self.data.keys():
+                    text = text + " " + name
+                self.taskdone(text)
+            else:
+                self.taskdone("there's no ones in the database")
 
-                if body is not None:
+        elif self.command == 'show':
+            if self.data.get(self.name) is None:
+                self.taskdone("there's no " + self.name + " in the database")
+            else:
+                cv2.imshow("shirt of " + self.name, self.data[self.name]['body'])
+                cv2.imshow("pant of " + self.name, self.data[self.name]['pant'])
+                cv2.waitKey(15)
+                self.taskdone("here are " + self.name + " shirt and pant")
+
+        if self.command == 'meet':
+            if not self.voice_once:
+                self.voice(self.name + " Can you please raise your hand")
+                self.voice_once = True
+
+            who_raised_hand = self.check_hand_raised()
+            if who_raised_hand is not None:
+                
+                body = self.get_bodyboxes()[who_raised_hand]
+                pant = self.get_pantboxes()[who_raised_hand]
+
+                if body is not None and pant is not None:
                     if self.data.get(self.name) is None:
-                        print("new person")
+                        self.taskdone("Hello " + self.name + " How are you")
                         self.data[self.name] = {}
                     else:
-                        print("meet again")
+                        self.taskdone("Hello " + self.name + " we meet again")
 
                     img = self.image
                     xmin,xmax,ymin,ymax = body
                     self.data[self.name]['body'] = img[ymin:ymax, xmin:xmax]
-                    self.command = 'done meet'
+                    xmin,xmax,ymin,ymax = pant
+                    self.data[self.name]['pant'] = img[ymin:ymax, xmin:xmax]
 
                     # Show (for debug)
+                    cv2.imshow("shirt", self.data[self.name]['body'])
+                    cv2.imshow("pant", self.data[self.name]['pant'])
+                    cv2.waitKey(15)
 
-
-                    cv2.imshow("body", self.data[self.name]['body'])
-                    cv2.waitKey(15)   
+                # else:
+                #     print("please stand in front of the camera")
                     
-            else:
-                print("Please raise your hand")
+            # else:
+            #     print("Please raise your hand")
 
         elif self.command == 'find':
-            #pass
-            # TH = 80
-            img1 = self.image
+            names = self.data.keys()
 
-            unknown_body = self.get_bodybox()
+            if self.name in names:
+                img1 = self.image
 
-            if unknown_body is not None:
-                xmin1,xmax1,ymin1,ymax1 = unknown_body
-                cv2.imshow("unknowbody", img1[ymin1:ymax1, xmin1:xmax1])
-                cv2.waitKey(5)
-                unknowbody_pic = img1[ymin1:ymax1, xmin1:xmax1]
-                
-            
-                names = self.data.keys()
+                bodies = self.get_bodyboxes()
+                pants = self.get_pantboxes()
+                persons = self.get_personboxes()
 
-                if len(names) > 0:
-                    sim_list=[]
-                    for p in names:
-                        know_body = self.data[p]['body']
+                mostlikely_sim = []
+                mostlikely_name = []
+                for i in range(len(bodies)):
+                    if bodies[i] and pants[i]: 
+                        xmin1,xmax1,ymin1,ymax1 = bodies[i]
+                        xmin2,xmax2,ymin2,ymax2 = pants[i]
 
-                        testHist, testPixal = self.get_histGBR(know_body)
-                        h,w,ch = self.data[p]['body'].shape
+                        unknowbody_pic = img1[ymin1:ymax1, xmin1:xmax1]
+                        unknowpant_pic = img1[ymin2:ymax2, xmin2:xmax2]
 
-                        unknowbody_pic = cv2.resize(unknowbody_pic, (w,h))
+                        # Show (for debug)
+                        cv2.imshow("unknow body " +str(i), unknowbody_pic)
+                        cv2.imshow("unknow pant " +str(i), unknowpant_pic)
+                        cv2.waitKey(15)                       
+        
+                        sim_list=[]
+                        for p in names:
+                            body_sim = get_sim(unknowbody_pic, self.data[p]['body'])
+                            pant_sim = get_sim(unknowpant_pic, self.data[p]['pant'])
+                            sim_list.append(body_sim + pant_sim)
 
-                        print know_body.shape, type(know_body), unknowbody_pic.shape, type(unknowbody_pic)
+                        mostlikely_sim.append ( max(sim_list) )
+                        mostlikely_name.append ( names[sim_list.index(max(sim_list))] )
 
-                        targetHist, targetPixal = self.get_histGBR(unknowbody_pic)
-
-                        sim = self.hist_similar(targetHist, testHist)
-                        if str(sim) != "[nan]":
-                            sim_list.append(sim)
-                            rospy.loginfo("similarity of "+p+str(sim))
-                        else:
-                            sim_list.append(0)
-                            rospy.loginfo("similarity of "+p+"[0]")
+                #print(mostlikely_name)
+                #print(mostlikely_sim)
                     
-                    max_sim = max(sim_list)
-                    if max_sim>=0.8 and names[sim_list.index(max_sim)]==self.name:
-                        self.taskdone('This is ' + self.name +"'s body!")
+                if self.name in mostlikely_name:
+                    idx = mostlikely_name.index(self.name)
+                    sim = mostlikely_sim[idx]
+                    if sim > 1.5:
+                        xmin3,xmax3,ymin3,ymax3 = persons[idx]
 
-            # names = self.data.keys()
-            # faces, _ = detect_faces(img)
+                        # Show person
+                        cv2.imshow("found person", img1[ymin3:ymax3, xmin3:xmax3])
+                        cv2.waitKey(15)        
 
-            # if len(faces) > 0:
-            #     for f in faces:
-            #         # predict the image using our face recognizer
-            #         label, confidence = self.face_recognizer.predict(f)
-            #         print('name', names[label], 'confidence', confidence)
+                        self.taskdone('I found ' + self.name +" here")
 
-            #         # Show face (for debug)
-            #         cv2.namedWindow("face")
-            #         cv2.imshow("face", f)
-            #         cv2.waitKey(100)
-
-            #         if confidence < TH:
-            #             if names[label] == self.name:
-            #                 self.taskdone('This is ' + self.name +
-            #                             '. I found you!')
+            else:
+                self.taskdone("I havent meet " + self.name + ' before')
+                
 
 def send_cmd_loop(app):
     while True:
