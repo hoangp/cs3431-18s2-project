@@ -218,9 +218,11 @@ class Run:
         return None
 
     def react_to_command(self):
+        img = self.image
+        names = self.data.keys()
+
         if self.command == 'list':
             if self.data:
-                names = self.data.keys()
                 text = "there are " + str(len(names)) + " people:"
                 for name in self.data.keys():
                     text = text + " " + name
@@ -237,7 +239,7 @@ class Run:
                 cv2.waitKey(15)
                 self.taskdone("here are " + self.name + " shirt and pant")
 
-        if self.command == 'meet':
+        elif self.command == 'meet':
             if not self.voice_once:
                 self.voice(self.name + " Can you please raise your hand?")
                 self.voice_once = True
@@ -257,7 +259,6 @@ class Run:
 
                     self.voice_once = False
 
-                    img = self.image
                     xmin,xmax,ymin,ymax = body
                     self.data[self.name]['body'] = img[ymin:ymax, xmin:xmax]
                     xmin,xmax,ymin,ymax = pant
@@ -274,12 +275,45 @@ class Run:
             # else:
             #     print("Please raise your hand")
 
+        elif self.command == 'who':
+            if names:
+                if not self.voice_once:
+                    self.voice("Can you please raise your hand?")
+                    self.voice_once = True
+
+                who_raised_hand = self.check_hand_raised()
+                if who_raised_hand is not None:
+                    
+                    body = self.get_bodyboxes(required_all_points = True)[who_raised_hand]
+                    pant = self.get_pantboxes(required_all_points = True)[who_raised_hand]
+
+                    if body is not None and pant is not None:
+                        xmin1,xmax1,ymin1,ymax1 = body
+                        xmin2,xmax2,ymin2,ymax2 = pant
+                    
+                        unknowbody_pic = img[ymin1:ymax1, xmin1:xmax1]
+                        unknowpant_pic = img[ymin2:ymax2, xmin2:xmax2]
+
+                        sim_list=[]
+                        for p in names:
+                            body_sim = get_sim(unknowbody_pic, self.data[p]['body'])
+                            pant_sim = get_sim(unknowpant_pic, self.data[p]['pant'])
+                            sim_list.append(body_sim + pant_sim)
+
+                        mostlikely_sim = max(sim_list)
+
+                        if mostlikely_sim < 1.2:
+                            self.taskdone("I have not meet you before")
+                        else:
+                            mostlikely_name = names[sim_list.index(mostlikely_sim)] 
+                            self.taskdone("I think you are " + mostlikely_name)
+                        self.voice_once = False
+                            
+            else:
+                self.taskdone("I have not meet you before")
+
         elif self.command == 'find':
-            names = self.data.keys()
-
             if self.name in names:
-                img1 = self.image
-
                 bodies = self.get_bodyboxes(required_all_points=False)
                 pants = self.get_pantboxes(required_all_points=False)
                 persons = self.get_personboxes(required_all_points=False)
@@ -292,9 +326,9 @@ class Run:
                         xmin2,xmax2,ymin2,ymax2 = pants[i]
                         xmin3,xmax3,ymin3,ymax3 = persons[i]
 
-                        unknowbody_pic = img1[ymin1:ymax1, xmin1:xmax1]
-                        unknowpant_pic = img1[ymin2:ymax2, xmin2:xmax2]
-                        unknowperson_pic = img1[ymin3:ymax3, xmin3:xmax3]
+                        unknowbody_pic = img[ymin1:ymax1, xmin1:xmax1]
+                        unknowpant_pic = img[ymin2:ymax2, xmin2:xmax2]
+                        unknowperson_pic = img[ymin3:ymax3, xmin3:xmax3]
 
                         # Show (for debug)
                         #cv2.imshow("unknown body " +str(i), unknowbody_pic)
@@ -321,13 +355,13 @@ class Run:
                         xmin3,xmax3,ymin3,ymax3 = persons[idx]
 
                         # Show person
-                        cv2.imshow("found person", img1[ymin3:ymax3, xmin3:xmax3])
+                        cv2.imshow("found person", img[ymin3:ymax3, xmin3:xmax3])
                         cv2.waitKey(15)        
 
-                        self.taskdone('I found ' + self.name +" here")
+                        self.taskdone('I found ' + self.name + " here")
 
             else:
-                self.taskdone("I havent meet " + self.name + ' before')
+                self.taskdone("I have not meet " + self.name + ' before')
                 
 
 def send_cmd_loop(app):
