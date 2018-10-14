@@ -6,6 +6,7 @@ def get_allowed_cmds():
         'list',
         'show',
         'meet',
+        'who',
         'find'
     }
     return allowed_cmds

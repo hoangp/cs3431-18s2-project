@@ -217,149 +217,161 @@ class Run:
                     return i
         return None
 
+    def list_cmd(self):
+        if self.data:
+            names = self.data.keys()
+            text = "there are " + str(len(names)) + " people:"
+            for name in names:
+                text = text + " " + name
+            self.taskdone(text)
+        else:
+            self.taskdone("there's no ones in the database")
+            
+    def show_cmd(self):
+        if self.data.get(self.name) is None:
+            self.taskdone("there's no " + self.name + " in the database")
+        else:
+            cv2.imshow("shirt of " + self.name, self.data[self.name]['body'])
+            cv2.imshow("pant of " + self.name, self.data[self.name]['pant'])
+            cv2.waitKey(15)
+            self.taskdone("here are " + self.name + " shirt and pant")
+
+    def meet_cmd(self):
+        if not self.voice_once:
+            self.voice(self.name + " Can you please raise your hand?")
+            self.voice_once = True
+
+        who_raised_hand = self.check_hand_raised()
+        if who_raised_hand is not None:
+            body = self.get_bodyboxes(required_all_points = True)[who_raised_hand]
+            pant = self.get_pantboxes(required_all_points = True)[who_raised_hand]
+
+            if body is not None and pant is not None:
+                if self.data.get(self.name) is None:
+                    self.taskdone("Hello " + self.name + " How are you")
+                    self.data[self.name] = {}
+                else:
+                    self.taskdone("Hello " + self.name + " we meet again")
+                self.voice_once = False
+
+                img = self.image
+                xmin,xmax,ymin,ymax = body
+                self.data[self.name]['body'] = img[ymin:ymax, xmin:xmax]
+                xmin,xmax,ymin,ymax = pant
+                self.data[self.name]['pant'] = img[ymin:ymax, xmin:xmax]
+
+                # Show (for debug)
+                cv2.imshow("shirt", self.data[self.name]['body'])
+                cv2.imshow("pant", self.data[self.name]['pant'])
+                cv2.waitKey(15)
+
+            # else:
+            #     print("please stand in front of the camera")
+                
+        # else:
+        #     print("Please raise your hand")
+
+    def who_cmd(self):
+        if not self.voice_once:
+            self.voice("Can you please raise your hand?")
+            self.voice_once = True
+
+        who_raised_hand = self.check_hand_raised()
+        if who_raised_hand is not None:
+            body = self.get_bodyboxes(required_all_points = True)[who_raised_hand]
+            pant = self.get_pantboxes(required_all_points = True)[who_raised_hand]
+
+            if body is not None and pant is not None:
+                xmin1,xmax1,ymin1,ymax1 = body
+                xmin2,xmax2,ymin2,ymax2 = pant
+                img = self.image
+                unknowbody_pic = img[ymin1:ymax1, xmin1:xmax1]
+                unknowpant_pic = img[ymin2:ymax2, xmin2:xmax2]
+
+                names = self.data.keys()
+                sim_list=[]
+                for p in names:
+                    body_sim = get_sim(unknowbody_pic, self.data[p]['body'])
+                    pant_sim = get_sim(unknowpant_pic, self.data[p]['pant'])
+                    sim_list.append(body_sim + pant_sim)
+
+                mostlikely_sim = max(sim_list)
+
+                if mostlikely_sim < 1.2:
+                    self.taskdone("I have not meet you before")
+                else:
+                    mostlikely_name = names[sim_list.index(mostlikely_sim)] 
+                    self.taskdone("I think you are " + mostlikely_name)
+                self.voice_once = False
+
+    def find_cmd(self):
+        bodies = self.get_bodyboxes(required_all_points=False)
+        pants = self.get_pantboxes(required_all_points=False)
+        persons = self.get_personboxes(required_all_points=False)
+
+        mostlikely_sim = []
+        mostlikely_name = []
+        for i in range(len(bodies)):
+            if bodies[i] and pants[i]: 
+                xmin1,xmax1,ymin1,ymax1 = bodies[i]
+                xmin2,xmax2,ymin2,ymax2 = pants[i]
+                xmin3,xmax3,ymin3,ymax3 = persons[i]
+                img = self.image
+                unknowbody_pic = img[ymin1:ymax1, xmin1:xmax1]
+                unknowpant_pic = img[ymin2:ymax2, xmin2:xmax2]
+                unknowperson_pic = img[ymin3:ymax3, xmin3:xmax3]
+
+                # Show (for debug)
+                #cv2.imshow("unknown body " +str(i), unknowbody_pic)
+                #cv2.imshow("unknown pant " +str(i), unknowpant_pic)
+                cv2.imshow("unknown person" +str(i), unknowperson_pic)
+                cv2.waitKey(15)                       
+
+                names = self.data.keys()
+                sim_list=[]
+                for p in names:
+                    body_sim = get_sim(unknowbody_pic, self.data[p]['body'])
+                    pant_sim = get_sim(unknowpant_pic, self.data[p]['pant'])
+                    sim_list.append(body_sim + pant_sim)
+
+                mostlikely_sim.append ( max(sim_list) )
+                mostlikely_name.append ( names[sim_list.index(max(sim_list))] )
+
+        #print(mostlikely_name)
+        #print(mostlikely_sim)
+            
+        if self.name in mostlikely_name:
+            idx = mostlikely_name.index(self.name)
+            sim = mostlikely_sim[idx]
+            if sim > 1.5:
+                self.taskdone('I found ' + self.name + " here")
+                # Show person
+                xmin3,xmax3,ymin3,ymax3 = persons[idx]
+                cv2.imshow("found person", img[ymin3:ymax3, xmin3:xmax3])
+                cv2.waitKey(15)        
+
+
     def react_to_command(self):
-        img = self.image
         names = self.data.keys()
 
         if self.command == 'list':
-            if self.data:
-                text = "there are " + str(len(names)) + " people:"
-                for name in self.data.keys():
-                    text = text + " " + name
-                self.taskdone(text)
-            else:
-                self.taskdone("there's no ones in the database")
+            self.list_cmd()
 
         elif self.command == 'show':
-            if self.data.get(self.name) is None:
-                self.taskdone("there's no " + self.name + " in the database")
-            else:
-                cv2.imshow("shirt of " + self.name, self.data[self.name]['body'])
-                cv2.imshow("pant of " + self.name, self.data[self.name]['pant'])
-                cv2.waitKey(15)
-                self.taskdone("here are " + self.name + " shirt and pant")
+            self.show_cmd()
 
         elif self.command == 'meet':
-            if not self.voice_once:
-                self.voice(self.name + " Can you please raise your hand?")
-                self.voice_once = True
-
-            who_raised_hand = self.check_hand_raised()
-            if who_raised_hand is not None:
-                
-                body = self.get_bodyboxes(required_all_points = True)[who_raised_hand]
-                pant = self.get_pantboxes(required_all_points = True)[who_raised_hand]
-
-                if body is not None and pant is not None:
-                    if self.data.get(self.name) is None:
-                        self.taskdone("Hello " + self.name + " How are you")
-                        self.data[self.name] = {}
-                    else:
-                        self.taskdone("Hello " + self.name + " we meet again")
-
-                    self.voice_once = False
-
-                    xmin,xmax,ymin,ymax = body
-                    self.data[self.name]['body'] = img[ymin:ymax, xmin:xmax]
-                    xmin,xmax,ymin,ymax = pant
-                    self.data[self.name]['pant'] = img[ymin:ymax, xmin:xmax]
-
-                    # Show (for debug)
-                    cv2.imshow("shirt", self.data[self.name]['body'])
-                    cv2.imshow("pant", self.data[self.name]['pant'])
-                    cv2.waitKey(15)
-
-                # else:
-                #     print("please stand in front of the camera")
-                    
-            # else:
-            #     print("Please raise your hand")
+            self.meet_cmd()
 
         elif self.command == 'who':
             if names:
-                if not self.voice_once:
-                    self.voice("Can you please raise your hand?")
-                    self.voice_once = True
-
-                who_raised_hand = self.check_hand_raised()
-                if who_raised_hand is not None:
-                    
-                    body = self.get_bodyboxes(required_all_points = True)[who_raised_hand]
-                    pant = self.get_pantboxes(required_all_points = True)[who_raised_hand]
-
-                    if body is not None and pant is not None:
-                        xmin1,xmax1,ymin1,ymax1 = body
-                        xmin2,xmax2,ymin2,ymax2 = pant
-                    
-                        unknowbody_pic = img[ymin1:ymax1, xmin1:xmax1]
-                        unknowpant_pic = img[ymin2:ymax2, xmin2:xmax2]
-
-                        sim_list=[]
-                        for p in names:
-                            body_sim = get_sim(unknowbody_pic, self.data[p]['body'])
-                            pant_sim = get_sim(unknowpant_pic, self.data[p]['pant'])
-                            sim_list.append(body_sim + pant_sim)
-
-                        mostlikely_sim = max(sim_list)
-
-                        if mostlikely_sim < 1.2:
-                            self.taskdone("I have not meet you before")
-                        else:
-                            mostlikely_name = names[sim_list.index(mostlikely_sim)] 
-                            self.taskdone("I think you are " + mostlikely_name)
-                        self.voice_once = False
-                            
+                self.who_cmd() 
             else:
-                self.taskdone("I have not meet you before")
+                self.taskdone("I have not meet anyone yet")
 
         elif self.command == 'find':
             if self.name in names:
-                bodies = self.get_bodyboxes(required_all_points=False)
-                pants = self.get_pantboxes(required_all_points=False)
-                persons = self.get_personboxes(required_all_points=False)
-
-                mostlikely_sim = []
-                mostlikely_name = []
-                for i in range(len(bodies)):
-                    if bodies[i] and pants[i]: 
-                        xmin1,xmax1,ymin1,ymax1 = bodies[i]
-                        xmin2,xmax2,ymin2,ymax2 = pants[i]
-                        xmin3,xmax3,ymin3,ymax3 = persons[i]
-
-                        unknowbody_pic = img[ymin1:ymax1, xmin1:xmax1]
-                        unknowpant_pic = img[ymin2:ymax2, xmin2:xmax2]
-                        unknowperson_pic = img[ymin3:ymax3, xmin3:xmax3]
-
-                        # Show (for debug)
-                        #cv2.imshow("unknown body " +str(i), unknowbody_pic)
-                        #cv2.imshow("unknown pant " +str(i), unknowpant_pic)
-                        cv2.imshow("unknown person" +str(i), unknowperson_pic)
-                        cv2.waitKey(15)                       
-        
-                        sim_list=[]
-                        for p in names:
-                            body_sim = get_sim(unknowbody_pic, self.data[p]['body'])
-                            pant_sim = get_sim(unknowpant_pic, self.data[p]['pant'])
-                            sim_list.append(body_sim + pant_sim)
-
-                        mostlikely_sim.append ( max(sim_list) )
-                        mostlikely_name.append ( names[sim_list.index(max(sim_list))] )
-
-                #print(mostlikely_name)
-                #print(mostlikely_sim)
-                    
-                if self.name in mostlikely_name:
-                    idx = mostlikely_name.index(self.name)
-                    sim = mostlikely_sim[idx]
-                    if sim > 1.5:
-                        xmin3,xmax3,ymin3,ymax3 = persons[idx]
-
-                        # Show person
-                        cv2.imshow("found person", img[ymin3:ymax3, xmin3:xmax3])
-                        cv2.waitKey(15)        
-
-                        self.taskdone('I found ' + self.name + " here")
-
+                self.find_cmd()
             else:
                 self.taskdone("I have not meet " + self.name + ' before')
                 
