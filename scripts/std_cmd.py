@@ -33,7 +33,6 @@ def send_cmd_loop(app):
         else:
             if is_allowed_cmds(command):
                 app.cmd_pub.publish(command)
-                rospy.loginfo("Published command '" + command + "'")
             else:
                 rospy.loginfo('Invalid command')
                 print("Valid commands: " + str(get_allowed_cmds()))

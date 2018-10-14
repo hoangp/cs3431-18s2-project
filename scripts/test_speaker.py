@@ -6,7 +6,7 @@ class TestSpeaker:
     def __init__(self, pubtopic_name = 'pr/voice', pubtopic_data_class = String):
         rospy.init_node('test_voice')
         self.voice_pub = rospy.Publisher(pubtopic_name, pubtopic_data_class, queue_size=10)
-        rospy.loginfo('Ready to pulish voice')
+        rospy.loginfo('Ready to publish voice')
 
 def send_cmd_loop(app):
     while True:

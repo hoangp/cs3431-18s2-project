@@ -7,8 +7,6 @@ import cv2
 import numpy as np
 from cv_bridge import CvBridge, CvBridgeError
 
-CAMERA_TOPIC = "/camera/rgb/image_raw"
-
 POSE_BODY_25_BODY_PARTS = {
     0:  "Nose",
     1:  "Neck",
@@ -41,9 +39,9 @@ POSE_BODY_25_BODY_PARTS = {
 POSE_BODY_25_BODY_PARTS_CONV = {name: index for index, name in POSE_BODY_25_BODY_PARTS.items()}
 pb = POSE_BODY_25_BODY_PARTS_CONV
 
-def is_center_image(p):
+def is_valid_point(p):
     #return (p[0]>100 and p[0]<540 and p[1]>50 and p[1] < 430)
-    return True
+    return sum(p) > 0
 
 def scale_box(box, width=0.0, height=0.0):
     xmin,xmax,ymin,ymax = box
@@ -68,11 +66,11 @@ def hist_similar(lhist, rhist):
     return cv2.compareHist(lhist, rhist,0)
 
 def get_sim(unknowbody_pic, know_body):
-    testHist, testPixal = get_histGBR(know_body)
-    h,w,ch = know_body.shape
+    testHist, _ = get_histGBR(know_body)
+    h,w,_ = know_body.shape
     unknowbody_pic = cv2.resize(unknowbody_pic, (w,h))
     #print know_body.shape, type(know_body), unknowbody_pic.shape, type(unknowbody_pic)
-    targetHist, targetPixal = get_histGBR(unknowbody_pic)
+    targetHist, _ = get_histGBR(unknowbody_pic)
     sim = hist_similar(targetHist, testHist)
     if str(sim) == "[nan]":
         return 0
@@ -96,7 +94,7 @@ class Run:
 
         self.voice_pub = rospy.Publisher('pr/voice', String, queue_size=10)
 
-        rospy.Subscriber(CAMERA_TOPIC, Image, self.callback_camera)
+        rospy.Subscriber('pr/camera', Image, self.callback_camera)
         rospy.Subscriber('pr/op_25kps', String, self.callback_25kpts)
         rospy.Subscriber('pr/cmd', String, self.callback_cmd)
 
@@ -150,9 +148,15 @@ class Run:
         except CvBridgeError as e:
             print(e)
         self.image = img
+
+        # Show (for debug)  
+        cv2.imshow("camera",img)
+        cv2.waitKey(15)
+
         self.react_to_command()
 
     def callback_cmd(self, command):
+        rospy.loginfo("Received command '" + command.data + "'")
         cmd = command.data.split(' ')
         if len(cmd) == 2:
             self.command = cmd[0]
@@ -167,35 +171,40 @@ class Run:
             kps.append(kpt)
         return kps
 
-    def get_box(self, kpts, idx):
+    def get_box(self, kpts, idx, required_all_points):
         if self.kpts:
             points = self.filter_kps(kpts, idx)
             #print(len(points))
-            # for i, p in enumerate(points):
-            #     if not is_center_image(p): 
-            #         return None
-            xpoints = [p[0] for p in points if p[0]!=0]
-            ypoints = [p[1] for p in points if p[1]!=0]
-            box = (min(xpoints), max(xpoints),min(ypoints), max(ypoints))
-            return scale_box(box)
+            if required_all_points:
+                for p in points:
+                    if not is_valid_point(p): 
+                        return None
+            xpoints = [p[0] for p in points if p[0]>0]
+            ypoints = [p[1] for p in points if p[1]>0]
 
-    def get_bodyboxes(self):
+            if xpoints and ypoints:
+                box = (min(xpoints), max(xpoints), min(ypoints), max(ypoints))
+                return scale_box(box)
+
+            return None
+
+    def get_bodyboxes(self, required_all_points):
         idx = {pb['Neck'], pb['MidHip'], pb['RShoulder'], pb['LShoulder'], pb['RHip'], pb['LHip']}
         #print("bodybox")
         #self.show_kps(idx)
-        return [self.get_box(kpts, idx) for kpts in self.kpts]
+        return [self.get_box(kpts, idx, required_all_points) for kpts in self.kpts]
 
-    def get_pantboxes(self):    
+    def get_pantboxes(self, required_all_points):    
         idx = {pb['MidHip'], pb['RHip'], pb['LHip'], pb['RKnee'], pb['LKnee']}
         #print("pantbox")
         #self.show_kps(idx)
-        return [self.get_box(kpts, idx) for kpts in self.kpts]
+        return [self.get_box(kpts, idx, required_all_points) for kpts in self.kpts]
 
-    def get_personboxes(self):
-        idx = range(26)
+    def get_personboxes(self, required_all_points):
+        idx = range(25)
         #print("bodybox")
         #self.show_kps(idx)
-        return [self.get_box(kpts, idx) for kpts in self.kpts]
+        return [self.get_box(kpts, idx, required_all_points) for kpts in self.kpts]
 
     def check_hand_raised(self):
         for i, kpts in enumerate(self.kpts):
@@ -230,14 +239,14 @@ class Run:
 
         if self.command == 'meet':
             if not self.voice_once:
-                self.voice(self.name + " Can you please raise your hand")
+                self.voice(self.name + " Can you please raise your hand?")
                 self.voice_once = True
 
             who_raised_hand = self.check_hand_raised()
             if who_raised_hand is not None:
                 
-                body = self.get_bodyboxes()[who_raised_hand]
-                pant = self.get_pantboxes()[who_raised_hand]
+                body = self.get_bodyboxes(required_all_points = True)[who_raised_hand]
+                pant = self.get_pantboxes(required_all_points = True)[who_raised_hand]
 
                 if body is not None and pant is not None:
                     if self.data.get(self.name) is None:
@@ -245,6 +254,8 @@ class Run:
                         self.data[self.name] = {}
                     else:
                         self.taskdone("Hello " + self.name + " we meet again")
+
+                    self.voice_once = False
 
                     img = self.image
                     xmin,xmax,ymin,ymax = body
@@ -269,9 +280,9 @@ class Run:
             if self.name in names:
                 img1 = self.image
 
-                bodies = self.get_bodyboxes()
-                pants = self.get_pantboxes()
-                persons = self.get_personboxes()
+                bodies = self.get_bodyboxes(required_all_points=False)
+                pants = self.get_pantboxes(required_all_points=False)
+                persons = self.get_personboxes(required_all_points=False)
 
                 mostlikely_sim = []
                 mostlikely_name = []
@@ -279,13 +290,16 @@ class Run:
                     if bodies[i] and pants[i]: 
                         xmin1,xmax1,ymin1,ymax1 = bodies[i]
                         xmin2,xmax2,ymin2,ymax2 = pants[i]
+                        xmin3,xmax3,ymin3,ymax3 = persons[i]
 
                         unknowbody_pic = img1[ymin1:ymax1, xmin1:xmax1]
                         unknowpant_pic = img1[ymin2:ymax2, xmin2:xmax2]
+                        unknowperson_pic = img1[ymin3:ymax3, xmin3:xmax3]
 
                         # Show (for debug)
-                        cv2.imshow("unknow body " +str(i), unknowbody_pic)
-                        cv2.imshow("unknow pant " +str(i), unknowpant_pic)
+                        #cv2.imshow("unknown body " +str(i), unknowbody_pic)
+                        #cv2.imshow("unknown pant " +str(i), unknowpant_pic)
+                        cv2.imshow("unknown person" +str(i), unknowperson_pic)
                         cv2.waitKey(15)                       
         
                         sim_list=[]
