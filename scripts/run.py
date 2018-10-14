@@ -54,15 +54,15 @@ def scale_box(box, width=0.0, height=0.0):
     return (xmin,xmax,ymin,ymax)
 
 def get_histGBR(img):
-        pixal = img.shape[0] * img.shape[1]
-        
-        histSingle0 = cv2.calcHist([img], [0], None, [256], [0, 256])
-        histSingle1 = cv2.calcHist([img], [1], None, [256], [0, 256])
-        histSingle2 = cv2.calcHist([img], [2], None, [256], [0, 256])
+    pixal = img.shape[0] * img.shape[1]
+    
+    histSingle0 = cv2.calcHist([img], [0], None, [256], [0, 256])
+    histSingle1 = cv2.calcHist([img], [1], None, [256], [0, 256])
+    histSingle2 = cv2.calcHist([img], [2], None, [256], [0, 256])
 
-        total = np.concatenate((histSingle0, histSingle1, histSingle2),0)
-            
-        return (total, pixal)
+    total = np.concatenate((histSingle0, histSingle1, histSingle2),0)
+        
+    return (total, pixal)
 
 def hist_similar(lhist, rhist):
     return cv2.compareHist(lhist, rhist,0)

@@ -28,7 +28,7 @@ class CommandListener:
         rospy.loginfo(data)
         words = data.data
         if words == 'FOCUS ON':
-            _set_focus_flag(True)
+            self._set_focus_flag(True)
         else:
             for c in self.cammands_keys:
                 if words.find(c) != -1:

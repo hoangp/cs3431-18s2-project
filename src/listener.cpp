@@ -20,6 +20,7 @@
 
 ros::Subscriber sub;
 ros::Publisher pub;
+ros::Publisher pubCam;
 
 void handle_openpose(const cv_bridge::CvImagePtr &cv_ptr);
 
@@ -36,11 +37,11 @@ void chatterCallback(const sensor_msgs::Image &img)
       return;
   }
 
-  handle_openpose(cv_ptr);
-}
+//   handle_openpose(cv_ptr);
+// }
 
-void handle_openpose(const cv_bridge::CvImagePtr &cv_ptr) 
-{
+// void handle_openpose(const cv_bridge::CvImagePtr &cv_ptr) 
+// {
   const auto data = cv_ptr->image;
   
   std::cout << "converted image" << std::endl;
@@ -82,6 +83,7 @@ void handle_openpose(const cv_bridge::CvImagePtr &cv_ptr)
       contents.data = datumProcessed->at(0).poseKeypoints.toString();
     
       pub.publish(contents);
+      pubCam.publish(img);
 
   } else {
       std::cout << "Dead" << std::endl;
@@ -131,6 +133,8 @@ int main(int argc, char **argv)
   
   pub = n.advertise<std_msgs::String>("pr/op_25kps", 10);
 
+  pubCam = n.advertise<sensor_msgs::Image>("pr/camera", 10);
+  
   /**
    * ros::spin() will enter a loop, pumping callbacks.  With this version, all
    * callbacks will be called from within this thread (the main one).  ros::spin()
