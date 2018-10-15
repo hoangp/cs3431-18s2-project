@@ -6,6 +6,7 @@ from sensor_msgs.msg import Image
 import cv2
 import numpy as np
 from cv_bridge import CvBridge, CvBridgeError
+import pyttsx
 
 POSE_BODY_25_BODY_PARTS = {
     0:  "Nose",
@@ -39,16 +40,20 @@ POSE_BODY_25_BODY_PARTS = {
 POSE_BODY_25_BODY_PARTS_CONV = {name: index for index, name in POSE_BODY_25_BODY_PARTS.items()}
 pb = POSE_BODY_25_BODY_PARTS_CONV
 
+def draw_rectangle(img, rect):
+    (x, y, w, h) = rect
+    cv2.rectangle(img, (x, y), (x+w, y+h), (0, 255, 0), 2)
+
 def is_valid_point(p):
     #return (p[0]>100 and p[0]<540 and p[1]>50 and p[1] < 430)
     return sum(p) > 0
 
-def scale_box(box, width=0.0, height=0.0):
+def scale_box(box, xmin_factor=1.0, xmax_factor=1.0, ymin_factor=1.0, ymax_factor=1.0):
     xmin,xmax,ymin,ymax = box
-    xmin = int(xmin*(1-width))
-    xmax = int(xmax*(1+width))
-    ymin = int(ymin*(1-height))
-    ymax = int(ymax*(1+height))
+    xmin = int(xmin*xmin_factor)
+    xmax = int(xmax*xmax_factor)
+    ymin = int(ymin*ymin_factor)
+    ymax = int(ymax*ymax_factor)
     return (xmin,xmax,ymin,ymax)
 
 def get_histGBR(img):
@@ -68,6 +73,8 @@ def hist_similar(lhist, rhist):
 def get_sim(unknowbody_pic, know_body):
     testHist, _ = get_histGBR(know_body)
     h,w,_ = know_body.shape
+    if h==0 or w==0:
+        return 0
     unknowbody_pic = cv2.resize(unknowbody_pic, (w,h))
     #print know_body.shape, type(know_body), unknowbody_pic.shape, type(unknowbody_pic)
     targetHist, _ = get_histGBR(unknowbody_pic)
@@ -89,10 +96,12 @@ class Run:
 
         self.hand_raised = False
         self.voice_once = False
+        self.display_cam = True
 
         rospy.init_node('person_recogition')
 
         self.voice_pub = rospy.Publisher('pr/voice', String, queue_size=10)
+        self.display_pub = rospy.Publisher('pr/display', Image, queue_size=10)
 
         rospy.Subscriber('pr/camera', Image, self.callback_camera)
         rospy.Subscriber('pr/op_25kps', String, self.callback_25kpts)
@@ -135,10 +144,18 @@ class Run:
         # speech = pyttsx.init()
         # speech.say(text)
         # speech.runAndWait()
+        engine = pyttsx.init()
+        rate = engine.getProperty("rate")
+        engine.setProperty("rate", rate - 60)
+        engine.setProperty("voice", 'english+f3')
+        engine.say(text)
+        engine.runAndWait()
+
         self.voice_pub.publish(text)
         rospy.loginfo(text)
 
     def taskdone(self, text):
+        self.display_cam = False
         self.command = ''  # reset to empty
         self.voice(text)
         
@@ -149,9 +166,13 @@ class Run:
             print(e)
         self.image = img
 
+        if self.display_cam:
+            #self.display(img, [],draw_box = False )
+            self.display_pub.publish(cam_data)
+
         # Show (for debug)  
-        cv2.imshow("camera",img)
-        cv2.waitKey(15)
+        #cv2.imshow("camera",img)
+        #cv2.waitKey(15)
 
         self.react_to_command()
 
@@ -201,10 +222,10 @@ class Run:
         return [self.get_box(kpts, idx, required_all_points) for kpts in self.kpts]
 
     def get_personboxes(self, required_all_points):
-        idx = range(25)
+        idx = {0,1,2,5,8,9,12,10,13,15,16,17,18}
         #print("bodybox")
         #self.show_kps(idx)
-        return [self.get_box(kpts, idx, required_all_points) for kpts in self.kpts]
+        return [scale_box(self.get_box(kpts, idx, required_all_points),ymin_factor=0.90) for kpts in self.kpts]
 
     def check_hand_raised(self):
         for i, kpts in enumerate(self.kpts):
@@ -220,21 +241,33 @@ class Run:
     def list_cmd(self):
         if self.data:
             names = self.data.keys()
-            text = "there are " + str(len(names)) + " people:"
+            text = "there are " + str(len(names)) + " people: "
             for name in names:
-                text = text + " " + name
+                text = text + ", " + name
             self.taskdone(text)
+            self.display_cam = True
         else:
             self.taskdone("there's no ones in the database")
+            self.display_cam = True
             
     def show_cmd(self):
         if self.data.get(self.name) is None:
             self.taskdone("there's no " + self.name + " in the database")
         else:
-            cv2.imshow("shirt of " + self.name, self.data[self.name]['body'])
-            cv2.imshow("pant of " + self.name, self.data[self.name]['pant'])
-            cv2.waitKey(15)
-            self.taskdone("here are " + self.name + " shirt and pant")
+            #cv2.imshow("shirt of " + self.name, self.data[self.name]['body'])
+            #cv2.imshow("pant of " + self.name, self.data[self.name]['pant'])
+            #cv2.waitKey(15)
+            img = self.data[self.name]['person']
+            self.taskdone("here is " + self.name)
+            self.display(img, [], draw_box=False )
+
+    def display(self, img, box, draw_box = True):
+        if draw_box:
+            xmin,xmax,ymin,ymax = box
+            rect = (xmin,ymin,xmax-xmin,ymax-ymin)
+            draw_rectangle(img, rect)
+        imgmsg = self.bridge.cv2_to_imgmsg(img, encoding="bgr8")
+        self.display_pub.publish(imgmsg)
 
     def meet_cmd(self):
         if not self.voice_once:
@@ -245,6 +278,7 @@ class Run:
         if who_raised_hand is not None:
             body = self.get_bodyboxes(required_all_points = True)[who_raised_hand]
             pant = self.get_pantboxes(required_all_points = True)[who_raised_hand]
+            person = self.get_personboxes(required_all_points = False)[who_raised_hand]
 
             if body is not None and pant is not None:
                 if self.data.get(self.name) is None:
@@ -260,10 +294,15 @@ class Run:
                 xmin,xmax,ymin,ymax = pant
                 self.data[self.name]['pant'] = img[ymin:ymax, xmin:xmax]
 
+                xmin,xmax,ymin,ymax = person
+                self.data[self.name]['person'] = img[ymin:ymax, xmin:xmax]
+
+                self.display(img, person)
+
                 # Show (for debug)
-                cv2.imshow("shirt", self.data[self.name]['body'])
-                cv2.imshow("pant", self.data[self.name]['pant'])
-                cv2.waitKey(15)
+                #cv2.imshow("shirt", self.data[self.name]['body'])
+                #cv2.imshow("pant", self.data[self.name]['pant'])
+                #cv2.waitKey(15)
 
             # else:
             #     print("please stand in front of the camera")
@@ -305,6 +344,7 @@ class Run:
                 self.voice_once = False
 
     def find_cmd(self):
+        img = self.image
         bodies = self.get_bodyboxes(required_all_points=False)
         pants = self.get_pantboxes(required_all_points=False)
         persons = self.get_personboxes(required_all_points=False)
@@ -315,17 +355,16 @@ class Run:
             if bodies[i] and pants[i]: 
                 xmin1,xmax1,ymin1,ymax1 = bodies[i]
                 xmin2,xmax2,ymin2,ymax2 = pants[i]
-                xmin3,xmax3,ymin3,ymax3 = persons[i]
-                img = self.image
+                #xmin3,xmax3,ymin3,ymax3 = persons[i]
                 unknowbody_pic = img[ymin1:ymax1, xmin1:xmax1]
                 unknowpant_pic = img[ymin2:ymax2, xmin2:xmax2]
-                unknowperson_pic = img[ymin3:ymax3, xmin3:xmax3]
+                #unknowperson_pic = img[ymin3:ymax3, xmin3:xmax3]
 
                 # Show (for debug)
                 #cv2.imshow("unknown body " +str(i), unknowbody_pic)
                 #cv2.imshow("unknown pant " +str(i), unknowpant_pic)
-                cv2.imshow("unknown person" +str(i), unknowperson_pic)
-                cv2.waitKey(15)                       
+                #cv2.imshow("unknown person" +str(i), unknowperson_pic)
+                #cv2.waitKey(15)                       
 
                 names = self.data.keys()
                 sim_list=[]
@@ -343,33 +382,39 @@ class Run:
         if self.name in mostlikely_name:
             idx = mostlikely_name.index(self.name)
             sim = mostlikely_sim[idx]
-            if sim > 1.5:
-                self.taskdone('I found ' + self.name + " here")
+            if sim > 1.4:
+                self.taskdone("I found " + self.name + " here")
+                self.display(img, persons[idx])
                 # Show person
-                xmin3,xmax3,ymin3,ymax3 = persons[idx]
-                cv2.imshow("found person", img[ymin3:ymax3, xmin3:xmax3])
-                cv2.waitKey(15)        
+                #xmin3,xmax3,ymin3,ymax3 = persons[idx]
+                #cv2.imshow("found person", img[ymin3:ymax3, xmin3:xmax3])
+                #cv2.waitKey(15)        
 
 
     def react_to_command(self):
         names = self.data.keys()
 
         if self.command == 'list':
+            self.display_cam = True
             self.list_cmd()
 
         elif self.command == 'show':
+            self.display_cam = True
             self.show_cmd()
 
         elif self.command == 'meet':
+            self.display_cam = True
             self.meet_cmd()
 
         elif self.command == 'who':
+            self.display_cam = True
             if names:
                 self.who_cmd() 
             else:
                 self.taskdone("I have not meet anyone yet")
 
         elif self.command == 'find':
+            self.display_cam = True
             if self.name in names:
                 self.find_cmd()
             else:

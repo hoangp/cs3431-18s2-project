@@ -13,9 +13,14 @@ class Speaker:
         rospy.spin()
         
     def lis_func(self, data):
-        speech = pyttsx.init()
-        speech.say(data.data)
-        speech.runAndWait()
+        engine = pyttsx.init()
+
+        rate = engine.getProperty("rate")
+        engine.setProperty("rate", rate - 60)
+        engine.setProperty("voice", 'english+f3')
+
+        engine.say(data.data)
+        engine.runAndWait()
         rospy.loginfo(data.data)
         
 if __name__ == '__main__':

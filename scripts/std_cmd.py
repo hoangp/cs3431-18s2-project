@@ -15,7 +15,8 @@ def is_allowed_cmds(command):
     cmd = command.split(' ')
     if len(cmd) == 2:
         command = cmd[0]
-    return command in get_allowed_cmds()
+    #return command in get_allowed_cmds()
+    return True
 
 class StdCmd:
     def __init__(self, pubtopic_name = 'pr/cmd', pubtopic_data_class = String):
