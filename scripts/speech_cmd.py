@@ -17,6 +17,7 @@ class Cmd(object):
             'I\'m',
             'I am',
             'my name is',
+            'this is',
             'meet',
             'find'
         }
@@ -25,6 +26,24 @@ class Cmd(object):
             if cmds.find(c) != -1:
                 allowed = True
         return allowed
+    
+    #I did not test it yet.
+    def _check_name(self, words):
+        meet_cmds = {
+            'i\'m',
+            'i am',
+            'my name is',
+            'this is',
+            'meet',
+        }
+        if self._is_allowed_cmds(words.lower()):
+            for c in meet_cmds:
+                if cmds.find(c) != -1:
+                    matching=re.findall(r'\b{}\s(\w+)'.format(c), words)
+                    #print('matching: ',matching)
+                    if matching != []:
+                        cmds = 'meet ' + matching[0]
+        return cmds
 
     def _is_stoping(self, cmds, stop_cmds = 'stop listening'):
         if cmds.find(stop_cmds) != -1:
@@ -52,6 +71,7 @@ class SpeechCmd(Cmd):
                    
                 # speech -> text   
                 try:    
+                    #words = r.recognize_google(audio)
                     words = r.recognize_google(audio)
                     rospy.loginfo('({})'.format(words))
                     if self._is_stoping(words):
