@@ -1,7 +1,7 @@
 #! /usr/bin/python
 
 import rospy
-from std_msgs.msg import String
+from std_msgs.msg import String, Header
 from sensor_msgs.msg import Image
 import cv2
 import numpy as np
@@ -9,6 +9,8 @@ from cv_bridge import CvBridge, CvBridgeError
 import pyttsx
 from geometry_msgs.msg import Twist
 import math
+from geometry_msgs.msg import PoseStamped, Pose, Point, Quaternion
+import tf
 
 PI = math.pi
 BOX_MIN = 5
@@ -44,6 +46,12 @@ POSE_BODY_25_BODY_PARTS = {
 
 POSE_BODY_25_BODY_PARTS_CONV = {name: index for index, name in POSE_BODY_25_BODY_PARTS.items()}
 pb = POSE_BODY_25_BODY_PARTS_CONV
+
+def get_header():
+    h = Header()
+    h.stamp = rospy.Time.now()
+    h.frame_id = 'map'
+    return h
 
 def genTwist(lx, ly, lz, ax, ay, az):
     twist = Twist()
@@ -115,10 +123,13 @@ def get_sim(unknowbody_pic, know_body):
 class Run:
     def __init__(self):
         self.data = {} # people database
+        self.room = {} # room database
+        self.current_room = 0
         self.command = ''
         self.name = ''
 
         self.bridge = CvBridge()  # convert ros image to cv2
+        self.tf_listener = tf.TransformListener() #  transfomation between frame
 
         self.image = None # cv2 image from camera
         self.kpts = None # list of [25 keypoints from openpose] -> number of person
@@ -126,13 +137,20 @@ class Run:
         self.hand_raised = False
         self.voice_once = False
         self.display_cam = True
+        self.counter = 0
+        self.next_pose = None
+        self.prev_pose = None
+        self.done_find = False
+        self.find_status = None
 
         rospy.init_node('person_recogition')
 
         self.voice_pub = rospy.Publisher('pr/voice', String, queue_size=10)
         self.display_pub = rospy.Publisher('pr/display', Image, queue_size=10)
-        self.cmd_vel_pub = rospy.Publisher('cmd_vel', Twist, queue_size=1)
+        self.cmd_vel_pub = rospy.Publisher('cmd_vel', Twist, queue_size=10)
+        self.goal_pub = rospy.Publisher('/move_base_simple/goal', PoseStamped, queue_size=10)
 
+        #rospy.Subscriber('camera/color/image_raw', Image, self.callback_camera)
         rospy.Subscriber('pr/camera', Image, self.callback_camera)
         rospy.Subscriber('pr/op_25kps', String, self.callback_25kpts)
         rospy.Subscriber('pr/cmd', String, self.callback_cmd)
@@ -195,6 +213,8 @@ class Run:
         except CvBridgeError as e:
             print(e)
         self.image = img
+
+        #print(self.get_pose())
 
         if self.display_cam:
             #self.display(img, [],draw_box = False )
@@ -350,43 +370,7 @@ class Run:
         # else:
         #     print("Please raise your hand")
 
-    # def who_cmd(self):
-    #     if not self.voice_once:
-    #         self.voice("Can you please raise your hand?")
-    #         self.voice_once = True
-
-    #     who_raised_hand = self.check_hand_raised()
-    #     if who_raised_hand is not None:
-    #         body = self.get_bodyboxes(required_all_points = True)[who_raised_hand]
-    #         pant = self.get_pantboxes(required_all_points = True)[who_raised_hand]
-    #         person = self.get_personboxes(required_all_points = False)[who_raised_hand]
-
-    #         if body is not None and pant is not None:
-    #             xmin1,xmax1,ymin1,ymax1 = body
-    #             xmin2,xmax2,ymin2,ymax2 = pant
-    #             img = self.image
-    #             unknowbody_pic = img[ymin1:ymax1, xmin1:xmax1]
-    #             unknowpant_pic = img[ymin2:ymax2, xmin2:xmax2]
-
-    #             names = self.data.keys()
-    #             sim_list=[]
-    #             for p in names:
-    #                 body_sim = get_sim(unknowbody_pic, self.data[p]['body'])
-    #                 pant_sim = get_sim(unknowpant_pic, self.data[p]['pant'])
-    #                 sim_list.append(body_sim + pant_sim)
-
-    #             mostlikely_sim = max(sim_list)
-
-    #             if mostlikely_sim < 1.2:
-    #                 mostlikely_name = None
-    #                 self.taskdone("I have not meet you before")
-    #             else:
-    #                 mostlikely_name = names[sim_list.index(mostlikely_sim)] 
-    #                 self.taskdone("I think your name is " + mostlikely_name)
-    #             self.voice_once = False
-    #             self.display(img, person, text=mostlikely_name)
-
-    def who_cmd2(self):
+    def who_cmd(self):
         bodies = self.get_bodyboxes(required_all_points = True)
         pants = self.get_pantboxes(required_all_points = True)
         persons = self.get_personboxes(required_all_points = False)
@@ -460,8 +444,6 @@ class Run:
                 mostlikely_sim.append ( max(sim_list) )
                 mostlikely_name.append ( names[sim_list.index(max(sim_list))] )
 
-        #print(mostlikely_name)
-        #print(mostlikely_sim)
                 if max(sim_list) < 1.2:
                     self.display(img, persons[i], text="?")
                 else:
@@ -477,95 +459,144 @@ class Run:
                 # Show person
                 #xmin3,xmax3,ymin3,ymax3 = persons[idx]
                 #cv2.imshow("found person", img[ymin3:ymax3, xmin3:xmax3])
-                #cv2.waitKey(15)  
-    
-    def goCircle(self, secs):
-        rospy.loginfo("Go circle for {0:d} secs".format(secs))
-        # Time minus Duration is a Time
-        secs_from_now = rospy.Time.now() + rospy.Duration(secs)
+                #cv2.waitKey(15)
 
-        while not rospy.is_shutdown():
-            if rospy.Time.now() < secs_from_now:
-                self.cmd_vel_pub.publish(genTwist(0, 0, 0, 0, 0, -1))
-            else:
-                rospy.loginfo("Stop turlebot")
-                self.cmd_vel_pub.publish(genTwist(0, 0, 0, 0, 0, 0))
-                break 
-
-    def move(self): 
-        vel_msg = Twist()
-
-        speed_line = 1.0
-        speed_rotate = 30.0 #degree/sec
-        angle = 180.0
-        distance = 3.0
-        isForward = 1#True or False
-        clockwise = 1  
-
-        #Converting from angles to radians
-        angular_speed = speed_rotate*2*PI/360
-        relative_angle = angle*2*PI/360
-
-        vel_msg.linear.x = 0
-        vel_msg.linear.y = 0
-        vel_msg.linear.z = 0
-        vel_msg.angular.x = 0
-        vel_msg.angular.y = 0
-
-        # Checking if our movement is CW or CCW
-        if clockwise:
-            vel_msg.angular.z = -abs(angular_speed)
-        else:
-            vel_msg.angular.z = abs(angular_speed)
-
-        t0 = rospy.Time.now().to_sec()
-        current_angle = 0
-
-        #self.cmd_vel_pub.publish(vel_msg)
-        while(current_angle < relative_angle):
-            self.cmd_vel_pub.publish(vel_msg)
-            t1 = rospy.Time.now().to_sec()
-            current_angle = angular_speed*(t1-t0)
-
-        #Forcing our robot to stop
-        vel_msg.angular.z = 0
-        self.cmd_vel_pub.publish(vel_msg)
-        #rospy.spin()
-        #Checking if the movement is forward or backwards
-        # if(isForward):
-        #     vel_msg.linear.x = abs(speed_line)
-        # else:
-        #     vel_msg.linear.x = -abs(speed_line)
+    def check_goal(self, goal):
+        if goal is None:
+            return True
+        p = self.get_pose().position
+        g = goal.position
         
-        # #Setting the current time for distance calculus
-        # t0 = rospy.Time.now().to_sec()
-        # current_distance = 0
+        limit = 0.1
+        print('check goal')
+        print( abs(p.x-g.x) + abs(p.y - g.y) )
+        return abs(p.x-g.x) < limit and abs(p.y - g.y) < limit
 
-        # #Loop to move the turtle in an specified distance
-        # while(current_distance < distance):
-        #     #Publish the velocity
-        #     self.cmd_vel_pub.publish(vel_msg)
-        #     #Takes actual time to velocity calculus
-        #     t1=rospy.Time.now().to_sec()
-        #     #Calculates distancePoseStamped
-        #     current_distance= speed_line*(t1-t0)
-        # #After the loop, stops the robot
-        # vel_msg.linear.x = 0
-        # #Force the robot to stop
-        # self.cmd_vel_pub.publish(vel_msg)
+    def check_stop(self):
+        pose = self.get_pose()
 
-        self.taskdone('Done Move')
+        if self.prev_pose is None:
+            self.prev_pose = pose
+            return False
 
+        p = pose.position
+        v = self.prev_pose.position
+
+        self.prev_pose = pose
+        zero = 0.1
+        print('check stop')
+        print( abs(p.x-v.x) + abs(p.y - v.y) )
+        return abs(p.x-v.x) < zero and abs(p.y - v.y) < zero
+
+    def find_cmd2(self):
+        if self.find_status is None or self.find_status == "finding":
+            if not self.voice_once:
+                self.voice("Try to find " + self.name + " in room " + self.room.keys()[self.current_room])
+                self.voice_once = True
+
+            self.counter += 1
+            self.cmd_vel_pub.publish(genTwist(0, 0, 0, 0, 0, -0.3))
+
+            if self.counter >= 15:
+                if self.current_room >= len(self.room.keys()) - 1:
+                    self.current_room = 0
+                else:
+                    self.current_room += 1
+                room_name = self.room.keys()[self.current_room]
+                self.next_pose = self.room[room_name]
+
+                self.goal_pub.publish(PoseStamped(get_header(), self.next_pose))
+                self.voice("Move to room " + room_name)
+                self.counter = 0
+                self.voice_once = False
+
+                self.find_status = "moving"
+
+        elif self.find_status == "moving":
+            if self.check_goal(self.next_pose):
+                self.next_pose = None
+                self.find_status = "force stop"
+
+        elif self.find_status == "force stop":
+            self.goal_pub.publish(PoseStamped(get_header(), self.get_pose()))
+            self.cmd_vel_pub.publish(genTwist(0, 0, 0, 0, 0, 0))
+            if self.check_stop():
+                if self.done_find:
+                    self.command = ''
+                    self.done_find = False
+                else:
+                    self.find_status = "finding"
+
+        if self.command == 'find':
+            self.find_cmd()
+
+            if self.command == '':
+                self.goal_pub.publish(PoseStamped(get_header(), self.get_pose()))
+                self.cmd_vel_pub.publish(genTwist(0, 0, 0, 0, 0, 0))
+                self.counter = 0
+                self.voice_once = False
+                self.next_pose = None
+                self.done_find = True
+                self.command = 'find'
+                self.find_status = 'force stop'
+
+        # if self.force_stop:
+        #     if not self.check_stop():
+        #         self.goal_pub.publish(PoseStamped(get_header(), self.get_pose()))
+        #         self.cmd_vel_pub.publish(genTwist(0, 0, 0, 0, 0, 0))
+        #     else:
+        #         self.command = ''
+        #         self.force_stop = False
+        # else:
+        # if self.counter >= 15:
+        #     if self.current_room >= len(self.room.keys()) - 1:
+        #         self.current_room = 0
+        #     else:
+        #         self.current_room += 1
+
+        #     room_name = self.room.keys()[self.current_room]
+        #     self.next_pose = self.room[room_name]
+
+        #     self.goal_pub.publish(PoseStamped(get_header(), self.next_pose))
+        #     self.voice("Move to room " + room_name)
+        #     self.counter = 0
+        #     self.voice_once = False
+
+        # elif self.check_goal(self.next_pose):
+        #     self.next_pose = None
+        #     # stop
+        #     if self.check_stop():
+        #         self.prev_pose = None    
+        #         if not self.voice_once:
+        #             self.voice("Try to find " + self.name + " in room " + self.room.keys()[self.current_room])
+        #             self.voice_once = True
+        #         print(self.counter)
+        #         self.counter += 1
+        #         self.cmd_vel_pub.publish(genTwist(0, 0, 0, 0, 0, -0.3))
+        #     else:
+        #         self.goal_pub.publish(PoseStamped(get_header(), self.get_pose()))
+        #         self.cmd_vel_pub.publish(genTwist(0, 0, 0, 0, 0, 0))
+
+        # self.find_cmd()
+
+        # if self.command == '':
+        #     self.goal_pub.publish(PoseStamped(get_header(), self.get_pose()))
+        #     self.cmd_vel_pub.publish(genTwist(0, 0, 0, 0, 0, 0))
+        #     self.counter = 0
+        #     self.voice_once = False
+        #     self.next_pose = None
+        #     #self.force_stop = True
+        #     #self.command = 'find'
+                    
+ 
     def react_to_command(self):
         names = self.data.keys()
 
         if self.command == 'list':
-            self.display_cam = True
             self.list_cmd()
             self.display_cam = True
 
         elif self.command == 'show':
-            self.display_cam = True
             self.show_cmd()
 
         elif self.command == 'meet':
@@ -573,25 +604,95 @@ class Run:
             self.meet_cmd()
 
         elif self.command == 'who':
-            #self.display_cam = True
-            self.who_cmd2() 
-            # if names:
-            #     self.who_cmd() 
-            # else:
-            #     self.taskdone("I have not meet anyone yet")
-            #     self.display_cam = True
+            self.who_cmd() 
 
         elif self.command == 'find':
-            self.display_cam = True
             if self.name in names:
-                self.find_cmd()
+                self.find_cmd2()
             else:
                 self.taskdone("I have not meet " + self.name + ' before')
                 self.display_cam = True
 
+        elif self.command == 'room':
+            rooms = self.room.keys()
+            if self.room.get(self.name):
+                self.current_room = rooms.index(self.name)
+            else:
+                self.current_room = len(self.room.keys())
+
+            self.room[self.name] = self.get_pose()
+            self.taskdone("Remember room " + self.name)
+            self.display_cam = True
+            print(self.room[self.name])
+
         elif self.command == 'move':
-            self.move()
-            #self.goCircle(3)
+            rooms = self.room.keys()
+            if self.name in rooms:
+                self.goal_pub.publish(PoseStamped(get_header(), self.room[self.name]))
+                self.current_room = rooms.index(self.name)
+                self.taskdone("Move to room " + self.name)
+            else:
+                self.taskdone("I do not know where room " + self.name + " is")
+            self.display_cam = True
+
+        elif self.command == 'stop':
+            self.goal_pub.publish(PoseStamped(get_header(), self.get_pose()))
+            self.cmd_vel_pub.publish(genTwist(0, 0, 0, 0, 0, 0))
+            self.taskdone("stop")
+  
+        elif self.command == 'pose':
+            print(self.get_pose())
+            self.taskdone("Printed location of room")
+            self.display_cam = True
+
+        elif self.command == 'circle':
+            self.cmd_vel_pub.publish(genTwist(0, 0, 0, 0, 0, -0.3))
+            self.counter += 1
+            print(self.counter)
+            if self.counter == 15:
+                self.cmd_vel_pub.publish(genTwist(0, 0, 0, 0, 0, 0))
+                self.counter = 0
+                self.taskdone("done circle")
+            self.display_cam = True
+
+    def get_robot_transform(self):
+        map_frame = '/map'
+        robot_frame = '/base_link'
+        # getLatestCommonTime(source_frame, target_frame) -> time
+        # Determines that most recent time for which Transformer can compute the transform 
+        # between the two given frames, that is, between source_frame and target_frame. 
+        # Returns a rospy.Time. 
+        self.tf_listener.waitForTransform(map_frame, robot_frame, rospy.Time(), rospy.Duration(5))
+        t = self.tf_listener.getLatestCommonTime(robot_frame, map_frame) 
+        # lookupTransform(target_frame, source_frame, time) -> position, quaternion
+        # Returns the transform from source_frame to target_frame at the time time. 
+        # time is a rospy.Time instance. 
+        # Returned as position (x, y, z) and an orientation quaternion (x, y, z, w). 
+        position, orientation = self.tf_listener.lookupTransform(map_frame, robot_frame, t)
+        return position, orientation
+
+    def get_pose(self):
+        #rospy.wait_for_service('get_robot_pose')
+        # try:
+        #     srv = rospy.ServiceProxy('get_robot_pose', GetRobotPose)
+        #     response = srv()
+
+        p, o = self.get_robot_transform()
+        #rp = RobotPose(p[0], p[1], p[2], o[0], o[1], o[2], o[3])
+        #rospy.loginfo('Returning robot position (%f, %f, %f) orientation (%f, %f, %f, %f)' %(
+        #rp.px, rp.py, rp.pz, rp.ox, rp.oy, rp.oz, rp.ow))
+        #return GetRobotPoseResponse(rp)
+
+        # convert RobotPose to Pose
+        #rp = response.pose 
+        #position = Point(rp.px, rp.py, rp.pz)
+        #orientation = Quaternion(rp.ox, rp.oy, rp.oz, rp.ow)
+
+        position = Point(p[0], p[1], p[2])
+        orientation = Quaternion(o[0], o[1], o[2], o[3])
+        return Pose(position, orientation)
+        # except rospy.ServiceException, e:
+        #     print "Service call failed: %s" % e
 
 
 def send_cmd_loop(app):
