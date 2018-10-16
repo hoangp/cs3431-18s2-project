@@ -142,6 +142,7 @@ class Run:
         self.prev_pose = None
         self.done_find = False
         self.find_status = None
+        self.turning = False
 
         rospy.init_node('person_recogition')
 
@@ -327,6 +328,8 @@ class Run:
             self.voice(self.name + " Can you please raise your hand?")
             self.voice_once = True
 
+        self.cmd_vel_pub.publish(genTwist(0, 0, 0, 0, 0, -0.2))
+
         who_raised_hand = self.check_hand_raised()
         if who_raised_hand is not None:
             body = self.get_bodyboxes(required_all_points = True)[who_raised_hand]
@@ -359,6 +362,8 @@ class Run:
                     imgcopy = copy.deepcopy(img)
                     self.display(imgcopy, person, text=self.name)
 
+                    self.cmd_vel_pub.publish(genTwist(0, 0, 0, 0, 0, 0))
+
                 # Show (for debug)
                 #cv2.imshow("shirt", self.data[self.name]['body'])
                 #cv2.imshow("pant", self.data[self.name]['pant'])
@@ -371,6 +376,8 @@ class Run:
         #     print("Please raise your hand")
 
     def who_cmd(self):
+        self.cmd_vel_pub.publish(genTwist(0, 0, 0, 0, 0, -0.2))
+
         bodies = self.get_bodyboxes(required_all_points = True)
         pants = self.get_pantboxes(required_all_points = True)
         persons = self.get_personboxes(required_all_points = False)
@@ -468,8 +475,8 @@ class Run:
         g = goal.position
         
         limit = 0.1
-        print('check goal')
-        print( abs(p.x-g.x) + abs(p.y - g.y) )
+        #print('check goal')
+        #print( abs(p.x-g.x) + abs(p.y - g.y) )
         return abs(p.x-g.x) < limit and abs(p.y - g.y) < limit
 
     def check_stop(self):
@@ -484,8 +491,8 @@ class Run:
 
         self.prev_pose = pose
         zero = 0.1
-        print('check stop')
-        print( abs(p.x-v.x) + abs(p.y - v.y) )
+        #print('check stop')
+        #print( abs(p.x-v.x) + abs(p.y - v.y) )
         return abs(p.x-v.x) < zero and abs(p.y - v.y) < zero
 
     def find_cmd2(self):
@@ -495,13 +502,14 @@ class Run:
                 self.voice_once = True
 
             self.counter += 1
-            self.cmd_vel_pub.publish(genTwist(0, 0, 0, 0, 0, -0.3))
+            self.cmd_vel_pub.publish(genTwist(0, 0, 0, 0, 0, -0.2))
 
-            if self.counter >= 15:
+            if self.counter >= 20:
                 if self.current_room >= len(self.room.keys()) - 1:
                     self.current_room = 0
                 else:
                     self.current_room += 1
+                    
                 room_name = self.room.keys()[self.current_room]
                 self.next_pose = self.room[room_name]
 
@@ -524,6 +532,7 @@ class Run:
                 if self.done_find:
                     self.command = ''
                     self.done_find = False
+                    self.find_status = None
                 else:
                     self.find_status = "finding"
 
@@ -538,75 +547,31 @@ class Run:
                 self.next_pose = None
                 self.done_find = True
                 self.command = 'find'
-                self.find_status = 'force stop'
-
-        # if self.force_stop:
-        #     if not self.check_stop():
-        #         self.goal_pub.publish(PoseStamped(get_header(), self.get_pose()))
-        #         self.cmd_vel_pub.publish(genTwist(0, 0, 0, 0, 0, 0))
-        #     else:
-        #         self.command = ''
-        #         self.force_stop = False
-        # else:
-        # if self.counter >= 15:
-        #     if self.current_room >= len(self.room.keys()) - 1:
-        #         self.current_room = 0
-        #     else:
-        #         self.current_room += 1
-
-        #     room_name = self.room.keys()[self.current_room]
-        #     self.next_pose = self.room[room_name]
-
-        #     self.goal_pub.publish(PoseStamped(get_header(), self.next_pose))
-        #     self.voice("Move to room " + room_name)
-        #     self.counter = 0
-        #     self.voice_once = False
-
-        # elif self.check_goal(self.next_pose):
-        #     self.next_pose = None
-        #     # stop
-        #     if self.check_stop():
-        #         self.prev_pose = None    
-        #         if not self.voice_once:
-        #             self.voice("Try to find " + self.name + " in room " + self.room.keys()[self.current_room])
-        #             self.voice_once = True
-        #         print(self.counter)
-        #         self.counter += 1
-        #         self.cmd_vel_pub.publish(genTwist(0, 0, 0, 0, 0, -0.3))
-        #     else:
-        #         self.goal_pub.publish(PoseStamped(get_header(), self.get_pose()))
-        #         self.cmd_vel_pub.publish(genTwist(0, 0, 0, 0, 0, 0))
-
-        # self.find_cmd()
-
-        # if self.command == '':
-        #     self.goal_pub.publish(PoseStamped(get_header(), self.get_pose()))
-        #     self.cmd_vel_pub.publish(genTwist(0, 0, 0, 0, 0, 0))
-        #     self.counter = 0
-        #     self.voice_once = False
-        #     self.next_pose = None
-        #     #self.force_stop = True
-        #     #self.command = 'find'
-                    
+                self.find_status = 'force stop'     
  
     def react_to_command(self):
         names = self.data.keys()
 
         if self.command == 'list':
+            self.cmd_vel_pub.publish(genTwist(0, 0, 0, 0, 0, 0))
             self.list_cmd()
             self.display_cam = True
 
         elif self.command == 'show':
+            self.cmd_vel_pub.publish(genTwist(0, 0, 0, 0, 0, 0))
             self.show_cmd()
 
         elif self.command == 'meet':
+            self.cmd_vel_pub.publish(genTwist(0, 0, 0, 0, 0, 0))
             self.display_cam = True
             self.meet_cmd()
 
         elif self.command == 'who':
+            self.cmd_vel_pub.publish(genTwist(0, 0, 0, 0, 0, 0))
             self.who_cmd() 
 
         elif self.command == 'find':
+            self.cmd_vel_pub.publish(genTwist(0, 0, 0, 0, 0, 0))
             if self.name in names:
                 self.find_cmd2()
             else:
@@ -623,7 +588,7 @@ class Run:
             self.room[self.name] = self.get_pose()
             self.taskdone("Remember room " + self.name)
             self.display_cam = True
-            print(self.room[self.name])
+            #print(self.room[self.name])
 
         elif self.command == 'move':
             rooms = self.room.keys()
@@ -646,10 +611,10 @@ class Run:
             self.display_cam = True
 
         elif self.command == 'circle':
-            self.cmd_vel_pub.publish(genTwist(0, 0, 0, 0, 0, -0.3))
+            self.cmd_vel_pub.publish(genTwist(0, 0, 0, 0, 0, -0.2))
             self.counter += 1
             print(self.counter)
-            if self.counter == 15:
+            if self.counter == 20:
                 self.cmd_vel_pub.publish(genTwist(0, 0, 0, 0, 0, 0))
                 self.counter = 0
                 self.taskdone("done circle")
