@@ -30,11 +30,12 @@ class Cmd(object):
     #I did not test it yet.
     def _check_name(self, words):
         meet_cmds = {
-            'i\'m',
-            'i am',
-            'my name is',
-            'this is',
-            'meet',
+            'i\'m': 'meet',
+            'i am'; 'meet',
+            'my name is': 'meet',
+            'this is': 'meet',
+            'meet': 'meet',
+            'find': 'find'
         }
         if self._is_allowed_cmds(words.lower()):
             for c in meet_cmds:
@@ -42,7 +43,8 @@ class Cmd(object):
                     matching=re.findall(r'\b{}\s(\w+)'.format(c), words)
                     #print('matching: ',matching)
                     if matching != []:
-                        cmds = 'meet ' + matching[0]
+                        name = matching[0]
+                        cmds = meet_cmds[c] + ' '+ matching[0]
         return cmds
 
     def _is_stoping(self, cmds, stop_cmds = 'stop listening'):
