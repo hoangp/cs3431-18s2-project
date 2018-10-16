@@ -11,6 +11,8 @@ from geometry_msgs.msg import Twist
 import math
 from geometry_msgs.msg import PoseStamped, Pose, Point, Quaternion
 import tf
+from turtlebot3_applications_msgs.srv import SetFollowState, SetFollowStateRequest, SetFollowStateResponse
+from collections import OrderedDict
 
 PI = math.pi
 BOX_MIN = 5
@@ -122,8 +124,8 @@ def get_sim(unknowbody_pic, know_body):
 
 class Run:
     def __init__(self):
-        self.data = {} # people database
-        self.room = {} # room database
+        self.data = OrderedDict() #{} # people database
+        self.room = OrderedDict() #{} # room database
         self.current_room = 0
         self.command = ''
         self.name = ''
@@ -376,7 +378,7 @@ class Run:
         #     print("Please raise your hand")
 
     def who_cmd(self):
-        self.cmd_vel_pub.publish(genTwist(0, 0, 0, 0, 0, -0.2))
+        self.cmd_vel_pub.publish(genTwist(0, 0, 0, 0, 0, -0.1))
 
         bodies = self.get_bodyboxes(required_all_points = True)
         pants = self.get_pantboxes(required_all_points = True)
@@ -526,8 +528,9 @@ class Run:
                 self.find_status = "force stop"
 
         elif self.find_status == "force stop":
-            self.goal_pub.publish(PoseStamped(get_header(), self.get_pose()))
+            #for i in range(10):
             self.cmd_vel_pub.publish(genTwist(0, 0, 0, 0, 0, 0))
+            self.goal_pub.publish(PoseStamped(get_header(), self.get_pose()))
             if self.check_stop():
                 if self.done_find:
                     self.command = ''
@@ -536,42 +539,44 @@ class Run:
                 else:
                     self.find_status = "finding"
 
-        if self.command == 'find':
+        if self.find_status != 'force stop':
             self.find_cmd()
-
             if self.command == '':
-                self.goal_pub.publish(PoseStamped(get_header(), self.get_pose()))
                 self.cmd_vel_pub.publish(genTwist(0, 0, 0, 0, 0, 0))
+                self.goal_pub.publish(PoseStamped(get_header(), self.get_pose()))
                 self.counter = 0
                 self.voice_once = False
                 self.next_pose = None
                 self.done_find = True
                 self.command = 'find'
-                self.find_status = 'force stop'     
+                self.find_status = 'force stop'  
+
+    def set_folow_state(self, state):
+        rospy.wait_for_service('set_follow_state')
+        try:
+            set_state_func = rospy.ServiceProxy('set_follow_state', SetFollowState)
+            set_state_func(state)
+        except rospy.ServiceException, e:
+            print "Service call failed: %s"%e   
  
     def react_to_command(self):
         names = self.data.keys()
 
         if self.command == 'list':
-            self.cmd_vel_pub.publish(genTwist(0, 0, 0, 0, 0, 0))
             self.list_cmd()
             self.display_cam = True
 
         elif self.command == 'show':
-            self.cmd_vel_pub.publish(genTwist(0, 0, 0, 0, 0, 0))
             self.show_cmd()
 
         elif self.command == 'meet':
-            self.cmd_vel_pub.publish(genTwist(0, 0, 0, 0, 0, 0))
             self.display_cam = True
             self.meet_cmd()
 
         elif self.command == 'who':
-            self.cmd_vel_pub.publish(genTwist(0, 0, 0, 0, 0, 0))
             self.who_cmd() 
 
         elif self.command == 'find':
-            self.cmd_vel_pub.publish(genTwist(0, 0, 0, 0, 0, 0))
             if self.name in names:
                 self.find_cmd2()
             else:
@@ -579,6 +584,7 @@ class Run:
                 self.display_cam = True
 
         elif self.command == 'room':
+            self.set_folow_state(0)
             rooms = self.room.keys()
             if self.room.get(self.name):
                 self.current_room = rooms.index(self.name)
@@ -601,9 +607,11 @@ class Run:
             self.display_cam = True
 
         elif self.command == 'stop':
-            self.goal_pub.publish(PoseStamped(get_header(), self.get_pose()))
+            self.set_folow_state(0)
+            #self.goal_pub.publish(PoseStamped(get_header(), self.get_pose()))
             self.cmd_vel_pub.publish(genTwist(0, 0, 0, 0, 0, 0))
             self.taskdone("stop")
+            self.command = 'stop'
   
         elif self.command == 'pose':
             print(self.get_pose())
@@ -618,6 +626,11 @@ class Run:
                 self.cmd_vel_pub.publish(genTwist(0, 0, 0, 0, 0, 0))
                 self.counter = 0
                 self.taskdone("done circle")
+            self.display_cam = True
+
+        elif self.command == 'follow':
+            self.set_folow_state(1)
+            self.taskdone("OK. I will follow you!")
             self.display_cam = True
 
     def get_robot_transform(self):
