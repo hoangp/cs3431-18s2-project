@@ -19,7 +19,12 @@ class Cmd(object):
             'my name is',
             'this is',
             'meet',
-            'find'
+            'find',
+            'follow',
+            'stop',
+            'room',
+            'move',
+            'stop'
         }
         allowed = allowed_all
         for c in allowed_cmds:
@@ -27,7 +32,7 @@ class Cmd(object):
                 allowed = True
         return allowed
     
-    #I did not test it yet.
+    #added room and move, but not test
     def _check_name(self, words):
         meet_cmds = {
             'i\'m': 'meet',
@@ -36,6 +41,8 @@ class Cmd(object):
             'this is': 'meet',
             'meet': 'meet',
             'find': 'find'
+            'room': 'room'
+            'move': 'move'
         }
         if self._is_allowed_cmds(words.lower()):
             for c in meet_cmds:
@@ -46,6 +53,16 @@ class Cmd(object):
                         name = matching[0]
                         cmds = meet_cmds[c] + ' '+ matching[0]
         return cmds
+    
+    def _stop_follow(self, words):
+        cmds = words.lower()
+        if self._is_allowed_cmds(cmds):
+            if cmds == 'stop':
+                return cmds
+            else:
+                matching=re.findall(r'\b{}\s(\w+)'.format('stop'), words)
+                if matching != []:
+                    return False
 
     def _is_stoping(self, cmds, stop_cmds = 'stop listening'):
         if cmds.find(stop_cmds) != -1:
