@@ -1,8 +1,10 @@
-# COMP3431 18s2 Project
+# COMP3431/COMP9431 18s2 Project
 
 Speech and Person Recognition
 
 Platform: TurtleBot3, ROS Kinetic, Ubuntu 16.04
+
+Team Members: Ella, Hoang, Robin, Faris
 
 ## Installation
 
@@ -22,7 +24,7 @@ For other installation instructions (TurtleBot3, ROS Kinetic, Ubuntu 16.04) Plea
 
 ## Setup
 
-Here is the steps and command lines in our PC. It might be different in your PC.
+Below is the steps and command lines in our PC. It might be different in your PC.
 
 - Run roscore
 - Bringup TurtleBot3 Lidar and Camera
@@ -36,7 +38,7 @@ roslaunch realsense_camera r200_nodelet_default.launch
 
 ```bash
 roslaunch turtlebot3_slam turtlebot3_slam.launch slam_methods:=gmapping
-roslaunch turtlebot3_navigation turtlebot3_navigation.launch
+roslaunch turtlebot3_navigation person_recognition_navigation.launch
 ```
 
 - Run OpenPose listener
